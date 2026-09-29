@@ -5,8 +5,10 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
-    healthCheckPath: /api/config
+    healthCheckPath: /healthz
     envVars:
+      - key: APP_PASSWORD
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: IG_USER_ID

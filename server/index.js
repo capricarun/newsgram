@@ -28,6 +28,22 @@ if (!ffmpegPath) {
 
 const app = express();
 app.disable('x-powered-by');
+app.get('/healthz', (req, res) => res.send('ok'));
+
+// Password gate (APP_PASSWORD). /media stays public because Instagram downloads posts from there.
+app.use((req, res, next) => {
+  const pass = process.env.APP_PASSWORD;
+  if (!pass || req.path.startsWith('/media/')) return next();
+  const [scheme, value] = (req.headers.authorization || '').split(' ');
+  if (scheme === 'Basic' && value) {
+    const supplied = Buffer.from(value, 'base64').toString().split(':').slice(1).join(':');
+    const a = Buffer.from(supplied);
+    const b = Buffer.from(pass);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return next();
+  }
+  res.set('WWW-Authenticate', 'Basic realm="Newsgram", charset="UTF-8"').status(401).send('Password required');
+});
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '1h' }));
@@ -154,8 +170,21 @@ app.post('/api/instagram/publish', wrap(async (req, res) => {
   res.json(await publishToInstagram({ kind, mediaUrl, caption: caption.slice(0, 2200) }));
 }));
 
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => {
-  console.log(`\n  Newsgram running → http://localhost:${PORT}`);
-  console.log(`  AI rephrase: ${aiEnabled() ? 'on' : 'off (set ANTHROPIC_API_KEY)'} · Instagram: ${igEnabled() ? 'on' : 'off'} · X: ${process.env.X_BEARER_TOKEN ? 'on' : 'off'} · ffmpeg: ${ffmpegPath ? 'yes' : 'no'}${isMock() ? ' · MOCK DATA' : ''}\n`);
-});
+const BASE_PORT = Number(process.env.PORT) || 3000;
+
+// Starts on PORT (default 3000); if it's taken locally, tries the next few ports.
+function start(port, triesLeft) {
+  app.listen(port, (err) => {
+    if (err) {
+      if (err.code === 'EADDRINUSE' && triesLeft > 0 && !process.env.RENDER) {
+        console.log(`  Port ${port} is busy, trying ${port + 1}…`);
+        return start(port + 1, triesLeft - 1);
+      }
+      console.error(err.code === 'EADDRINUSE' ? `\n  Port ${port} is already in use. Try: PORT=4000 npm start\n` : err);
+      process.exit(1);
+    }
+    console.log(`\n  Newsgram running → http://localhost:${port}`);
+    console.log(`  AI rephrase: ${aiEnabled() ? 'on' : 'off (set ANTHROPIC_API_KEY)'} · Instagram: ${igEnabled() ? 'on' : 'off'} · X: ${process.env.X_BEARER_TOKEN ? 'on' : 'off'} · ffmpeg: ${ffmpegPath ? 'yes' : 'no'}${isMock() ? ' · MOCK DATA' : ''}\n`);
+  });
+}
+start(BASE_PORT, 10);

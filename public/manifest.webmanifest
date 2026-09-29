@@ -1,0 +1,9 @@
+{
+  "name": "Newsgram",
+  "short_name": "Newsgram",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07070B",
+  "theme_color": "#07070B",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

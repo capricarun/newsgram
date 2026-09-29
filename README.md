@@ -41,7 +41,8 @@ Testing locally? Run a tunnel (`ngrok http 3000`) and put the tunnel URL in `PUB
 
 1. Push this repo to GitHub.
 2. On render.com → **New → Blueprint** → pick the repo (`render.yaml` is included).
-3. Fill in the env vars; set `PUBLIC_BASE_URL` to the `https://….onrender.com` address Render gives you.
+3. Fill in the env vars — set `APP_PASSWORD` so only you can use it (browsers ask once; any username works), and set `PUBLIC_BASE_URL` to the `https://….onrender.com` address Render gives you.
+4. On your phone, open that address and use **Add to Home Screen** for an app-like icon.
 
 Free instances sleep when idle, so the first request after a pause is slow. Rendered media is kept for 24 h in `media/`.
 
