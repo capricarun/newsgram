@@ -1,0 +1,161 @@
+import 'dotenv/config';
+import express from 'express';
+import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+import { SOURCES, CATEGORIES } from './sources.js';
+import { getNews } from './news.js';
+import { getArticle } from './article.js';
+import { rephraseBatch, rephraseArticle, aiEnabled } from './ai.js';
+import { publishToInstagram, igEnabled } from './instagram.js';
+import { assertPublicUrl, fetchWithTimeout } from './util.js';
+import { mockImageSvg } from './mock.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
+const MEDIA_DIR = path.join(ROOT, 'media');
+fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+let ffmpegPath = process.env.FFMPEG_PATH || null;
+if (!ffmpegPath) {
+  try {
+    ffmpegPath = (await import('ffmpeg-static')).default;
+  } catch {}
+}
+
+const app = express();
+app.disable('x-powered-by');
+app.use(express.json({ limit: '2mb' }));
+app.use(express.static(path.join(ROOT, 'public')));
+app.use('/media', express.static(MEDIA_DIR, { maxAge: '1h' }));
+
+const wrap = (fn) => (req, res) =>
+  Promise.resolve(fn(req, res)).catch((e) => {
+    console.error(`[${req.method} ${req.path}]`, e.message);
+    if (!res.headersSent) res.status(e.status || 500).json({ error: e.message });
+  });
+
+const isMock = () => process.env.MOCK === '1';
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    sources: SOURCES.map(({ id, name, color, x, domain }) => ({ id, name, color, x, domain })),
+    categories: CATEGORIES.map(({ id, label }) => ({ id, label })),
+    features: { ai: aiEnabled(), instagram: igEnabled(), x: Boolean(process.env.X_BEARER_TOKEN), transcode: Boolean(ffmpegPath), mock: isMock() },
+    handle: process.env.BRAND_HANDLE || '',
+  });
+});
+
+app.get('/api/news', wrap(async (req, res) => {
+  const sourceIds = String(req.query.sources || '').split(',').filter(Boolean);
+  const category = String(req.query.category || 'top');
+  if (!sourceIds.length) return res.status(400).json({ error: 'Pick at least one source' });
+  res.json(await getNews({ sourceIds, category, includeX: req.query.x === '1' }));
+}));
+
+app.get('/api/article', wrap(async (req, res) => {
+  res.json(await getArticle(String(req.query.url || '')));
+}));
+
+app.post('/api/ai/headlines', wrap(async (req, res) => {
+  const { items = [], tone, lang } = req.body || {};
+  res.json(await rephraseBatch(items.slice(0, 24), { tone, lang }));
+}));
+
+app.post('/api/ai/rephrase', wrap(async (req, res) => {
+  const { url, title, summary, sourceName, tone, lang, handle } = req.body || {};
+  let text = '';
+  if (url && !/^\//.test(url)) {
+    try {
+      text = (await getArticle(url)).text;
+    } catch (e) {
+      console.warn('article fetch failed, using summary:', e.message);
+    }
+  } else if (isMock()) {
+    text = (await getArticle(url || '')).text;
+  }
+  res.json({ ...(await rephraseArticle({ title, summary, text, sourceName, tone, lang, handle })), usedArticle: Boolean(text) });
+}));
+
+// Same-origin image proxy so the canvas isn't tainted by cross-origin images.
+app.get('/api/img', wrap(async (req, res) => {
+  const url = String(req.query.url || '');
+  await assertPublicUrl(url);
+  const r = await fetchWithTimeout(url, { headers: { Referer: new URL(url).origin + '/' } }, 15000);
+  const type = r.headers.get('content-type') || '';
+  if (!r.ok || !type.startsWith('image/')) return res.status(502).json({ error: `Image fetch failed (${r.status})` });
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length > 20e6) return res.status(413).end();
+  res.set({ 'Content-Type': type, 'Cache-Control': 'public, max-age=3600' }).send(buf);
+}));
+
+app.get('/api/mock-image/:n', (req, res) => res.type('image/svg+xml').send(mockImageSvg(Number(req.params.n) || 0)));
+
+// Streams a source video to the browser as a download.
+app.get('/api/video', wrap(async (req, res) => {
+  const url = String(req.query.url || '');
+  if (url.startsWith('/media/')) return res.download(path.join(MEDIA_DIR, path.basename(url)));
+  await assertPublicUrl(url);
+  const r = await fetchWithTimeout(url, { headers: { Referer: new URL(url).origin + '/' } }, 60000);
+  const type = r.headers.get('content-type') || '';
+  if (!r.ok) return res.status(502).json({ error: `Video fetch failed (${r.status})` });
+  if (!/video|octet-stream|mp4/.test(type)) return res.status(415).json({ error: `Not a direct video file (${type || 'unknown type'}). It may be a stream or embedded player.` });
+  const name = (String(req.query.name || 'news-video').replace(/[^\w-]+/g, '-').slice(0, 60) || 'news-video') + '.mp4';
+  res.set({ 'Content-Type': type, 'Content-Disposition': `attachment; filename="${name}"` });
+  if (r.headers.get('content-length')) res.set('Content-Length', r.headers.get('content-length'));
+  Readable.fromWeb(r.body).pipe(res);
+}));
+
+// Saves a rendered card / reel so it has a public URL (needed by Instagram).
+app.post('/api/media', express.raw({ type: ['image/*', 'video/*'], limit: '150mb' }), wrap(async (req, res) => {
+  const type = req.headers['content-type'] || '';
+  const ext = type.includes('jpeg') ? 'jpg' : type.includes('png') ? 'png' : type.includes('mp4') ? 'mp4' : type.includes('webm') ? 'webm' : null;
+  if (!ext || !req.body?.length) return res.status(400).json({ error: 'Unsupported media' });
+  let name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+  fs.writeFileSync(path.join(MEDIA_DIR, name), req.body);
+  // Instagram needs H.264 MP4 — transcode anything else (or re-mux MediaRecorder MP4 for safety).
+  if (type.startsWith('video/') && ffmpegPath && (ext === 'webm' || req.query.normalize === '1')) {
+    const out = name.replace(/\.\w+$/, '-ig.mp4');
+    await transcode(path.join(MEDIA_DIR, name), path.join(MEDIA_DIR, out));
+    name = out;
+  }
+  cleanupMedia();
+  const base = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  res.json({ name, path: `/media/${name}`, url: `${base}/media/${name}` });
+}));
+
+function transcode(input, output) {
+  return new Promise((resolve, reject) => {
+    const args = ['-y', '-i', input, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-shortest',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', '30', '-b:v', '5M', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', output];
+    const p = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg failed: ${err.split('\n').slice(-3).join(' ')}`))));
+  });
+}
+
+function cleanupMedia() {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  for (const f of fs.readdirSync(MEDIA_DIR)) {
+    if (f === 'sample.mp4' || f.startsWith('.')) continue;
+    const p = path.join(MEDIA_DIR, f);
+    if (fs.statSync(p).mtimeMs < cutoff) fs.rmSync(p, { force: true });
+  }
+}
+
+app.post('/api/instagram/publish', wrap(async (req, res) => {
+  const { name, kind, caption = '' } = req.body || {};
+  if (!name || !fs.existsSync(path.join(MEDIA_DIR, path.basename(name)))) return res.status(400).json({ error: 'Upload the media first' });
+  const mediaUrl = `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/media/${path.basename(name)}`;
+  res.json(await publishToInstagram({ kind, mediaUrl, caption: caption.slice(0, 2200) }));
+}));
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => {
+  console.log(`\n  Newsgram running → http://localhost:${PORT}`);
+  console.log(`  AI rephrase: ${aiEnabled() ? 'on' : 'off (set ANTHROPIC_API_KEY)'} · Instagram: ${igEnabled() ? 'on' : 'off'} · X: ${process.env.X_BEARER_TOKEN ? 'on' : 'off'} · ffmpeg: ${ffmpegPath ? 'yes' : 'no'}${isMock() ? ' · MOCK DATA' : ''}\n`);
+});

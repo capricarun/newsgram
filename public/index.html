@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Newsgram — News to Instagram studio</title>
+  <meta name="theme-color" content="#07070B" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%238B5CF6'/%3E%3Cstop offset='.55' stop-color='%23FF4D6D'/%3E%3Cstop offset='1' stop-color='%23FFB020'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M18 46V18h6l16 18V18h6v28h-6L24 28v18z' fill='%23fff'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@500;800&family=Noto+Sans+Tamil:wght@500;800&family=Noto+Sans+Telugu:wght@500;800&family=Playfair+Display:wght@800&family=Poppins:wght@500;600;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Newsgram home">
+      <span class="brand-mark">N</span>
+      <span class="brand-name">newsgram</span>
+    </a>
+    <nav class="stepper" aria-label="Progress">
+      <button class="step is-active" data-step="1"><span>1</span>Sources</button>
+      <i></i>
+      <button class="step" data-step="2" disabled><span>2</span>Stories</button>
+      <i></i>
+      <button class="step" data-step="3" disabled><span>3</span>Studio</button>
+    </nav>
+    <div class="flags" id="flags"></div>
+  </header>
+
+  <main>
+    <!-- STEP 1 -->
+    <section class="view is-active" id="view-1" aria-labelledby="h1">
+      <div class="hero">
+        <p class="eyebrow">Live from India's newsrooms</p>
+        <h1 id="h1">Turn today's headlines into <span class="grad">scroll-stopping posts.</span></h1>
+        <p class="lede">Pick your sources and a beat. We'll pull the latest stories, rewrite them with AI and drop them onto 1:1 cards ready for Instagram.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>News sources</h2>
+          <div class="row gap-s">
+            <button class="link" id="selAll">Select all</button>
+            <button class="link" id="selNone">Clear</button>
+          </div>
+        </div>
+        <div class="source-grid" id="sourceGrid"></div>
+        <label class="switch" id="xSwitch">
+          <input type="checkbox" id="includeX" />
+          <span class="track"><span class="thumb"></span></span>
+          <span>Include posts from their X accounts <small id="xNote"></small></span>
+        </label>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Category</h2></div>
+        <div class="chips" id="catChips" role="radiogroup" aria-label="Category"></div>
+      </div>
+
+      <div class="panel two-col">
+        <label class="field">
+          <span>AI tone</span>
+          <select id="tone">
+            <option value="punchy">Punchy — built for the feed</option>
+            <option value="neutral">Neutral — wire-service style</option>
+            <option value="explainer">Explainer — why it matters</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Post language</span>
+          <select id="lang">
+            <option value="en">English</option>
+            <option value="hi">हिन्दी Hindi</option>
+            <option value="ta">தமிழ் Tamil</option>
+            <option value="te">తెలుగు Telugu</option>
+            <option value="mr">मराठी Marathi</option>
+            <option value="bn">বাংলা Bengali</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="cta-bar">
+        <p id="pickSummary">Pick at least one source</p>
+        <button class="btn btn-primary btn-lg" id="fetchBtn" disabled>Fetch stories <span aria-hidden="true">→</span></button>
+      </div>
+    </section>
+
+    <!-- STEP 2 -->
+    <section class="view" id="view-2" aria-labelledby="h2">
+      <div class="view-head">
+        <div>
+          <p class="eyebrow" id="storiesEyebrow">Stories</p>
+          <h1 id="h2" class="h-md">Pick a story to design</h1>
+        </div>
+        <div class="row gap-s">
+          <button class="btn btn-ghost" id="backTo1">← Sources</button>
+          <button class="btn btn-ghost" id="refreshBtn">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="status-row" id="statusRow"></div>
+      <div class="tabs" id="storyTabs" hidden>
+        <button class="tab is-active" data-tab="rss">Websites</button>
+        <button class="tab" data-tab="x">From X</button>
+      </div>
+      <div class="story-grid" id="storyGrid"></div>
+    </section>
+
+    <!-- STEP 3 -->
+    <section class="view" id="view-3" aria-label="Studio">
+      <div class="studio">
+        <div class="stage">
+          <div class="stage-top">
+            <button class="btn btn-ghost btn-s" id="backTo2">← Stories</button>
+            <span class="muted small" id="stageHint">Drag the image to reposition · scroll or pinch to zoom</span>
+          </div>
+          <div class="canvas-wrap" id="canvasWrap">
+            <canvas id="card" width="1080" height="1080" aria-label="Post preview"></canvas>
+            <div class="rec-overlay" id="recOverlay" hidden>
+              <div class="rec-dot"></div><span id="recText">Recording reel…</span>
+            </div>
+          </div>
+          <div class="source-line" id="sourceLine"></div>
+        </div>
+
+        <aside class="inspector">
+          <div class="tabs tabs-full" role="tablist">
+            <button class="tab is-active" data-panel="copy">Copy</button>
+            <button class="tab" data-panel="image">Image</button>
+            <button class="tab" data-panel="style">Style</button>
+            <button class="tab" data-panel="export">Publish</button>
+          </div>
+
+          <!-- COPY -->
+          <div class="ipanel is-active" data-panel="copy">
+            <div class="ai-box">
+              <div>
+                <strong>✦ AI rephrase</strong>
+                <p class="muted small" id="aiNote">Rewrites from the full original article.</p>
+              </div>
+              <button class="btn btn-primary" id="aiBtn">Rephrase</button>
+            </div>
+            <label class="field">
+              <span>Headline <em class="muted small">wrap words in *stars* to highlight</em></span>
+              <textarea id="headline" rows="3" maxlength="160"></textarea>
+            </label>
+            <label class="field">
+              <span>Body copy</span>
+              <textarea id="body" rows="5" maxlength="500"></textarea>
+            </label>
+            <label class="field">
+              <span>Instagram caption</span>
+              <textarea id="caption" rows="6" maxlength="2200"></textarea>
+            </label>
+            <details class="orig">
+              <summary>Original from the source</summary>
+              <p id="origTitle" class="strong"></p>
+              <p id="origText" class="muted small"></p>
+              <button class="link" id="useOriginal">Use original headline</button>
+            </details>
+          </div>
+
+          <!-- IMAGE -->
+          <div class="ipanel" data-panel="image">
+            <label class="field">
+              <span>Zoom <output id="zoomOut">100%</output></span>
+              <input type="range" id="zoom" min="30" max="400" value="100" />
+            </label>
+            <div class="row gap-s wrap">
+              <button class="btn btn-ghost btn-s" data-fit="cover">Fill frame</button>
+              <button class="btn btn-ghost btn-s" data-fit="contain">Fit whole image</button>
+              <button class="btn btn-ghost btn-s" data-fit="center">Re-centre</button>
+            </div>
+            <label class="field">
+              <span>Shade for text <output id="dimOut">70%</output></span>
+              <input type="range" id="dim" min="0" max="100" value="70" />
+            </label>
+            <div class="field">
+              <span>Images from the article</span>
+              <div class="thumbs" id="thumbs"><p class="muted small">Loading…</p></div>
+            </div>
+            <div class="field">
+              <span>Use your own</span>
+              <div class="row gap-s">
+                <label class="btn btn-ghost btn-s file-btn">Upload<input type="file" id="upload" accept="image/*" /></label>
+                <input type="url" id="imgUrl" placeholder="…or paste an image URL" />
+              </div>
+            </div>
+          </div>
+
+          <!-- STYLE -->
+          <div class="ipanel" data-panel="style">
+            <div class="field">
+              <span>Layout</span>
+              <div class="tpl-grid" id="tplGrid"></div>
+            </div>
+            <div class="field">
+              <span>Accent</span>
+              <div class="swatches" id="swatches"></div>
+            </div>
+            <label class="field">
+              <span>Headline font</span>
+              <select id="font">
+                <option value="poppins">Poppins ExtraBold — clean, mass</option>
+                <option value="anton">Anton — tabloid condensed</option>
+                <option value="playfair">Playfair — editorial serif</option>
+                <option value="grotesk">Space Grotesk — modern tech</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Headline size <output id="hsOut">76</output></span>
+              <input type="range" id="headSize" min="44" max="120" value="76" />
+            </label>
+            <label class="field">
+              <span>Body size <output id="bsOut">34</output></span>
+              <input type="range" id="bodySize" min="22" max="48" value="34" />
+            </label>
+            <div class="row gap-m wrap">
+              <label class="check"><input type="checkbox" id="showBody" checked /> Body copy</label>
+              <label class="check"><input type="checkbox" id="showSource" checked /> Source tag</label>
+              <label class="check"><input type="checkbox" id="breaking" /> “Breaking” badge</label>
+            </div>
+            <label class="field">
+              <span>Your handle / watermark</span>
+              <input type="text" id="handle" placeholder="@yourpage" maxlength="40" />
+            </label>
+          </div>
+
+          <!-- EXPORT -->
+          <div class="ipanel" data-panel="export">
+            <div class="export-block">
+              <h3>Image post</h3>
+              <div class="row gap-s wrap">
+                <button class="btn btn-primary" id="dlJpg">⬇ Download JPG</button>
+                <button class="btn btn-ghost" id="dlPng">PNG</button>
+              </div>
+            </div>
+            <div class="export-block">
+              <h3>Reel (animated 1:1 video)</h3>
+              <label class="field">
+                <span>Length <output id="durOut">8s</output></span>
+                <input type="range" id="duration" min="5" max="15" value="8" />
+              </label>
+              <div class="row gap-s wrap">
+                <button class="btn btn-primary" id="dlReel">⬇ Record &amp; download MP4</button>
+                <button class="btn btn-ghost" id="previewReel">▶ Preview</button>
+              </div>
+              <p class="muted small">Keep this tab in front while recording.</p>
+            </div>
+            <div class="export-block" id="srcVideoBlock">
+              <h3>Video from the source</h3>
+              <div id="srcVideos"><p class="muted small">Checking the article…</p></div>
+            </div>
+            <div class="export-block ig">
+              <h3><span class="ig-mark"></span>Post to Instagram</h3>
+              <p class="muted small" id="igNote"></p>
+              <div class="row gap-s wrap">
+                <button class="btn btn-ig" id="igImage">Post image</button>
+                <button class="btn btn-ghost" id="igReel">Post as Reel</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="igSetup" class="modal">
+    <h2>Connect Instagram</h2>
+    <p>Posting uses Instagram's official Content Publishing API. You need:</p>
+    <ol>
+      <li>An Instagram <b>Business or Creator</b> account linked to a Facebook Page.</li>
+      <li>A Meta developer app with <code>instagram_content_publish</code> permission, and a long-lived access token.</li>
+      <li>This app deployed at a public HTTPS address (e.g. Render) — Instagram downloads the image from there.</li>
+    </ol>
+    <p>Then set <code>IG_USER_ID</code>, <code>IG_ACCESS_TOKEN</code> and <code>PUBLIC_BASE_URL</code> in the server's environment. Steps are in the README.</p>
+    <form method="dialog"><button class="btn btn-primary">Got it</button></form>
+  </dialog>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
