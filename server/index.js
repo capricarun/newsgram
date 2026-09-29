@@ -58,7 +58,7 @@ const isMock = () => process.env.MOCK === '1';
 
 app.get('/api/config', (req, res) => {
   res.json({
-    sources: SOURCES.map(({ id, name, color, x, domain }) => ({ id, name, color, x, domain })),
+    sources: SOURCES.map(({ id, name, color, x, domain, group, lang, only }) => ({ id, name, color, x, domain, group, lang, only: only || null })),
     categories: CATEGORIES.map(({ id, label }) => ({ id, label })),
     features: { ai: aiEnabled(), instagram: igEnabled(), x: Boolean(process.env.X_BEARER_TOKEN), transcode: Boolean(ffmpegPath), mock: isMock() },
     handle: process.env.BRAND_HANDLE || '',

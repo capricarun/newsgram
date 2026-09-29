@@ -4,23 +4,39 @@
 
 export const CATEGORIES = [
   { id: 'top', label: 'Top Stories', gnews: '' },
+  { id: 'tamilnadu', label: 'Tamil Nadu', gnews: '"Tamil Nadu" OR Chennai' },
   { id: 'india', label: 'India', gnews: 'India' },
   { id: 'world', label: 'World', gnews: 'world' },
   { id: 'business', label: 'Business', gnews: 'business OR economy OR markets' },
   { id: 'sports', label: 'Sports', gnews: 'sports OR cricket' },
-  { id: 'entertainment', label: 'Entertainment', gnews: 'entertainment OR bollywood' },
+  { id: 'entertainment', label: 'Cinema & Entertainment', gnews: 'entertainment OR cinema OR bollywood' },
   { id: 'tech', label: 'Tech', gnews: 'technology OR gadgets' },
 ];
+
+// Tamil keywords for Google News fallback on Tamil-language sources.
+const TA_WORDS = {
+  top: '',
+  tamilnadu: 'தமிழ்நாடு OR சென்னை',
+  india: 'இந்தியா',
+  world: 'உலகம்',
+  business: 'வணிகம் OR பங்குச்சந்தை OR தங்கம்',
+  sports: 'விளையாட்டு OR கிரிக்கெட்',
+  entertainment: 'சினிமா',
+  tech: 'தொழில்நுட்பம்',
+};
 
 export const SOURCES = [
   {
     id: 'thehindu',
+    group: 'national',
+    lang: 'en',
     name: 'The Hindu',
     domain: 'thehindu.com',
     color: '#1D6FE0',
     x: 'the_hindu',
     feeds: {
       top: ['https://www.thehindu.com/feeder/default.rss', 'https://www.thehindu.com/news/feeder/default.rss'],
+      tamilnadu: ['https://www.thehindu.com/news/national/tamil-nadu/feeder/default.rss', 'https://www.thehindu.com/news/cities/chennai/feeder/default.rss'],
       india: ['https://www.thehindu.com/news/national/feeder/default.rss'],
       world: ['https://www.thehindu.com/news/international/feeder/default.rss'],
       business: ['https://www.thehindu.com/business/feeder/default.rss'],
@@ -31,12 +47,15 @@ export const SOURCES = [
   },
   {
     id: 'indianexpress',
+    group: 'national',
+    lang: 'en',
     name: 'Indian Express',
     domain: 'indianexpress.com',
     color: '#E0312F',
     x: 'IndianExpress',
     feeds: {
       top: ['https://indianexpress.com/feed/'],
+      tamilnadu: ['https://indianexpress.com/section/cities/chennai/feed/'],
       india: ['https://indianexpress.com/section/india/feed/'],
       world: ['https://indianexpress.com/section/world/feed/'],
       business: ['https://indianexpress.com/section/business/feed/'],
@@ -47,12 +66,15 @@ export const SOURCES = [
   },
   {
     id: 'toi',
+    group: 'national',
+    lang: 'en',
     name: 'Times of India',
     domain: 'timesofindia.indiatimes.com',
     color: '#F2A93B',
     x: 'timesofindia',
     feeds: {
       top: ['https://timesofindia.indiatimes.com/rssfeedstopstories.cms'],
+      tamilnadu: ['https://timesofindia.indiatimes.com/rssfeeds/2950623.cms'],
       india: ['https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms'],
       world: ['https://timesofindia.indiatimes.com/rssfeeds/296589292.cms'],
       business: ['https://timesofindia.indiatimes.com/rssfeeds/1898055.cms'],
@@ -63,12 +85,15 @@ export const SOURCES = [
   },
   {
     id: 'ht',
+    group: 'national',
+    lang: 'en',
     name: 'Hindustan Times',
     domain: 'hindustantimes.com',
     color: '#00A3E0',
     x: 'htTweets',
     feeds: {
       top: ['https://www.hindustantimes.com/feeds/rss/latest/rssfeed.xml', 'https://www.hindustantimes.com/feeds/rss/topnews/rssfeed.xml'],
+      tamilnadu: ['https://www.hindustantimes.com/feeds/rss/cities/chennai-news/rssfeed.xml'],
       india: ['https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml'],
       world: ['https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml'],
       business: ['https://www.hindustantimes.com/feeds/rss/business/rssfeed.xml'],
@@ -79,12 +104,15 @@ export const SOURCES = [
   },
   {
     id: 'ndtv',
+    group: 'national',
+    lang: 'en',
     name: 'NDTV',
     domain: 'ndtv.com',
     color: '#E4002B',
     x: 'ndtv',
     feeds: {
       top: ['https://feeds.feedburner.com/ndtvnews-top-stories'],
+      tamilnadu: ['https://feeds.feedburner.com/ndtvnews-south'],
       india: ['https://feeds.feedburner.com/ndtvnews-india-news'],
       world: ['https://feeds.feedburner.com/ndtvnews-world-news'],
       business: ['https://feeds.feedburner.com/ndtvprofit-latest'],
@@ -95,12 +123,15 @@ export const SOURCES = [
   },
   {
     id: 'news18',
+    group: 'national',
+    lang: 'en',
     name: 'CNN-News18',
     domain: 'news18.com',
     color: '#C8102E',
     x: 'CNNnews18',
     feeds: {
       top: ['https://www.news18.com/commonfeeds/v1/eng/rss/latest.xml', 'https://www.news18.com/rss/india.xml'],
+      tamilnadu: ['https://www.news18.com/commonfeeds/v1/eng/rss/tamil-nadu.xml'],
       india: ['https://www.news18.com/commonfeeds/v1/eng/rss/india.xml', 'https://www.news18.com/rss/india.xml'],
       world: ['https://www.news18.com/commonfeeds/v1/eng/rss/world.xml', 'https://www.news18.com/rss/world.xml'],
       business: ['https://www.news18.com/commonfeeds/v1/eng/rss/business.xml', 'https://www.news18.com/rss/business.xml'],
@@ -109,10 +140,143 @@ export const SOURCES = [
       tech: ['https://www.news18.com/commonfeeds/v1/eng/rss/tech.xml', 'https://www.news18.com/rss/tech.xml'],
     },
   },
+
+  // ---------------- Tamil ----------------
+  {
+    id: 'thanthi',
+    name: 'Thanthi TV',
+    domain: 'thanthitv.com',
+    group: 'tamil',
+    lang: 'ta',
+    color: '#E31E24',
+    x: 'ThanthiTV',
+    feeds: {
+      top: ['https://www.thanthitv.com/stories.rss'],
+      tamilnadu: ['https://www.thanthitv.com/stories.rss?section=tamilnadu'],
+      india: ['https://www.thanthitv.com/stories.rss?section=india'],
+      world: ['https://www.thanthitv.com/stories.rss?section=world'],
+      business: ['https://www.thanthitv.com/stories.rss?section=business'],
+      sports: ['https://www.thanthitv.com/stories.rss?section=sports'],
+      entertainment: ['https://www.thanthitv.com/stories.rss?section=cinema'],
+      tech: ['https://www.thanthitv.com/stories.rss?section=technology'],
+    },
+    pages: {
+      top: 'https://www.thanthitv.com/',
+      tamilnadu: 'https://www.thanthitv.com/news/tamilnadu',
+      india: 'https://www.thanthitv.com/news/india',
+      world: 'https://www.thanthitv.com/news/world',
+      business: 'https://www.thanthitv.com/news/business',
+      sports: 'https://www.thanthitv.com/news/sports',
+      entertainment: 'https://www.thanthitv.com/news/cinema',
+      tech: 'https://www.thanthitv.com/news/technology',
+    },
+  },
+  {
+    id: 'puthiyathalaimurai',
+    name: 'Puthiya Thalaimurai',
+    domain: 'puthiyathalaimurai.com',
+    group: 'tamil',
+    lang: 'ta',
+    color: '#0072BC',
+    x: 'PTTVOnlineNews',
+    feeds: {
+      top: ['https://www.puthiyathalaimurai.com/stories.rss'],
+      tamilnadu: ['https://www.puthiyathalaimurai.com/stories.rss?section=tamilnadu'],
+      india: ['https://www.puthiyathalaimurai.com/stories.rss?section=india'],
+      world: ['https://www.puthiyathalaimurai.com/stories.rss?section=world'],
+      business: ['https://www.puthiyathalaimurai.com/stories.rss?section=business'],
+      sports: ['https://www.puthiyathalaimurai.com/stories.rss?section=sports'],
+      entertainment: ['https://www.puthiyathalaimurai.com/stories.rss?section=cinema'],
+      tech: ['https://www.puthiyathalaimurai.com/stories.rss?section=technology'],
+    },
+    pages: {
+      top: 'https://www.puthiyathalaimurai.com/collection/lastpublished',
+      tamilnadu: 'https://www.puthiyathalaimurai.com/tamilnadu',
+      india: 'https://www.puthiyathalaimurai.com/india',
+      world: 'https://www.puthiyathalaimurai.com/world',
+      business: 'https://www.puthiyathalaimurai.com/business',
+      sports: 'https://www.puthiyathalaimurai.com/sports',
+      entertainment: 'https://www.puthiyathalaimurai.com/cinema',
+      tech: 'https://www.puthiyathalaimurai.com/technology',
+    },
+  },
+  {
+    id: 'hindutamil',
+    name: 'Hindu Tamil Thisai',
+    domain: 'hindutamil.in',
+    group: 'tamil',
+    lang: 'ta',
+    color: '#1D6FE0',
+    x: 'TamilTheHindu',
+    feeds: {
+      top: ['https://www.hindutamil.in/rss', 'https://www.hindutamil.in/feed'],
+    },
+    pages: {
+      top: 'https://www.hindutamil.in/',
+      tamilnadu: 'https://www.hindutamil.in/news/tamilnadu',
+      india: 'https://www.hindutamil.in/news/india',
+      world: 'https://www.hindutamil.in/news/world',
+      business: 'https://www.hindutamil.in/news/business',
+      sports: 'https://www.hindutamil.in/news/sports',
+      entertainment: 'https://www.hindutamil.in/news/cinema',
+      tech: 'https://www.hindutamil.in/news/technology',
+    },
+  },
+  {
+    id: 'polimer',
+    name: 'Polimer News',
+    domain: 'polimernews.com',
+    group: 'tamil',
+    lang: 'ta',
+    color: '#F7941D',
+    x: 'polimernews',
+    feeds: {
+      top: ['https://www.polimernews.com/rss'],
+      tamilnadu: ['https://www.polimernews.com/rss/tamilnadunews'],
+      india: ['https://www.polimernews.com/rss/indianews'],
+      world: ['https://www.polimernews.com/rss/worldnews'],
+      business: ['https://www.polimernews.com/rss/trade'],
+      sports: ['https://www.polimernews.com/rss/sportsnews'],
+      entertainment: ['https://www.polimernews.com/rss/cinemanews'],
+      tech: ['https://www.polimernews.com/rss/technologynews'],
+    },
+    pages: {
+      top: 'https://www.polimernews.com/',
+      tamilnadu: 'https://www.polimernews.com/tamilnadunews',
+      india: 'https://www.polimernews.com/indianews',
+      world: 'https://www.polimernews.com/worldnews',
+      business: 'https://www.polimernews.com/trade',
+      sports: 'https://www.polimernews.com/sportsnews',
+      entertainment: 'https://www.polimernews.com/cinemanews',
+      tech: 'https://www.polimernews.com/technologynews',
+    },
+  },
+  {
+    id: 'behindwoods',
+    name: 'Behindwoods',
+    domain: 'behindwoods.com',
+    group: 'tamil',
+    lang: 'en',
+    color: '#FFC20E',
+    x: 'behindwoods',
+    only: ['top', 'tamilnadu', 'entertainment'],
+    feeds: {},
+    pages: {
+      top: 'https://www.behindwoods.com/news-shots/',
+      tamilnadu: 'https://www.behindwoods.com/news-shots/',
+      entertainment: 'https://www.behindwoods.com/tamil-movies-cinema-news-16/',
+    },
+  },
 ];
+
+export function supports(source, category) {
+  return !source.only || source.only.includes(category);
+}
 
 export function googleNewsUrl(source, category) {
   const cat = CATEGORIES.find((c) => c.id === category);
-  const q = `site:${source.domain} ${cat?.gnews || ''} when:2d`.trim();
-  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
+  const words = source.lang === 'ta' ? TA_WORDS[category] : cat?.gnews;
+  const q = `site:${source.domain} ${words || ''} when:2d`.replace(/\s+/g, ' ').trim();
+  const loc = source.lang === 'ta' ? 'hl=ta&gl=IN&ceid=IN:ta' : 'hl=en-IN&gl=IN&ceid=IN:en';
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${loc}`;
 }

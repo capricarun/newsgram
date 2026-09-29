@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import crypto from 'node:crypto';
-import { SOURCES, googleNewsUrl } from './sources.js';
+import { SOURCES, googleNewsUrl, supports } from './sources.js';
+import { scrapeListing } from './scrape.js';
 import { cached, fetchText, stripHtml, mapLimit } from './util.js';
 import { getArticle } from './article.js';
 import { fetchXPosts } from './x.js';
@@ -81,26 +82,82 @@ async function fetchFeed(url) {
   return list;
 }
 
+const MIN_ITEMS = 6;
+
+async function scrapedItems(source, category, url) {
+  const links = await scrapeListing(url, 16);
+  const items = await mapLimit(links, 6, async (l, idx) => {
+    const a = await getArticle(l.link, { lite: true }).catch(() => null);
+    const title = cleanTitle((l.title.length >= 15 ? l.title : a?.title) || '', source);
+    if (!title) return null;
+    return {
+      id: crypto.createHash('md5').update(l.link).digest('hex').slice(0, 12),
+      kind: 'rss',
+      via: 'scrape',
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceColor: source.color,
+      category,
+      title,
+      summary: stripHtml(a?.description || '').slice(0, 600),
+      link: l.link,
+      image: a?.image || l.image || '',
+      video: a?.videos?.find((v) => v.type === 'file')?.url || '',
+      // Section pages list newest first; keep that order when no date is published.
+      published: a?.published || new Date(Date.now() - idx * 60000).toISOString(),
+    };
+  });
+  return items.filter(Boolean);
+}
+
 export async function fetchSource(source, category) {
   return cached(`src:${source.id}:${category}`, 5 * 60 * 1000, async () => {
     const errors = [];
-    for (const url of source.feeds[category] || []) {
+    if (!supports(source, category)) return { items: [], feed: null, via: 'unsupported', errors: [`${source.name} has no section for this category`] };
+
+    let items = [];
+    let feed = null;
+    const seen = new Set();
+    const add = (list) => {
+      for (const it of list) if (!seen.has(it.link)) (seen.add(it.link), items.push(it));
+    };
+
+    for (const url of source.feeds?.[category] || []) {
       try {
-        const items = await fetchFeed(url);
-        return { items: items.slice(0, 20).map((i) => normalise(i, source, category, 'rss')), feed: url, errors };
+        add((await fetchFeed(url)).slice(0, 20).map((i) => normalise(i, source, category, 'rss')));
+        feed = feed || url;
+        if (items.length >= MIN_ITEMS) break;
       } catch (e) {
         errors.push(e.message);
       }
     }
+
+    // Thin or missing feed: read the section page itself.
+    let via = items.length ? 'rss' : '';
+    const page = source.pages?.[category];
+    if (items.length < MIN_ITEMS && page) {
+      try {
+        const before = items.length;
+        add(await scrapedItems(source, category, page));
+        if (items.length > before) {
+          via = via ? 'rss+page' : 'page';
+          feed = feed || page;
+        }
+      } catch (e) {
+        errors.push(`page: ${e.message}`);
+      }
+    }
+    if (items.length) return { items: items.slice(0, 20), feed, via, errors };
+
     // Last resort: Google News search scoped to the publisher's domain.
     const g = googleNewsUrl(source, category);
     try {
-      const items = await fetchFeed(g);
-      return { items: items.slice(0, 15).map((i) => normalise(i, source, category, 'gnews')), feed: g, errors };
+      const list = await fetchFeed(g);
+      return { items: list.slice(0, 15).map((i) => normalise(i, source, category, 'gnews')), feed: g, via: 'gnews', errors };
     } catch (e) {
       errors.push(e.message);
     }
-    return { items: [], feed: null, errors };
+    return { items: [], feed: null, via: 'failed', errors };
   });
 }
 
@@ -129,8 +186,8 @@ export async function getNews({ sourceIds, category, includeX }) {
   while (queues.some((q) => q.length)) for (const q of queues) if (q.length) merged.push(q.shift());
   const items = merged.slice(0, 48);
 
-  const missing = items.filter((i) => !i.image && i.via === 'rss').slice(0, 16);
-  await mapLimit(missing, 6, async (it) => {
+  const missing = items.filter((i) => !i.image && i.via === 'rss').slice(0, 20);
+  await mapLimit(missing, 8, async (it) => {
     const a = await getArticle(it.link, { lite: true });
     if (a?.image) it.image = a.image;
     if (a?.videos?.length && !it.video) it.video = a.videos[0].url;
@@ -141,6 +198,6 @@ export async function getNews({ sourceIds, category, includeX }) {
   return {
     items,
     xItems,
-    status: results.map((r) => ({ id: r.source.id, name: r.source.name, count: r.items.length, feed: r.feed, errors: r.errors })),
+    status: results.map((r) => ({ id: r.source.id, name: r.source.name, count: r.items.length, feed: r.feed, via: r.via, errors: r.errors })),
   };
 }

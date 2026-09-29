@@ -19,12 +19,13 @@ export const TEMPLATES = [
   { id: 'bold', name: 'Bold' },
 ];
 
-const FALLBACK = '"Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Bengali", Poppins, sans-serif';
+const FALLBACK = 'Catamaran, "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Bengali", Poppins, sans-serif';
 const HEAD_FONTS = {
   poppins: (s) => `800 ${s}px Poppins, ${FALLBACK}`,
   anton: (s) => `400 ${s}px Anton, ${FALLBACK}`,
   playfair: (s) => `800 ${s}px "Playfair Display", ${FALLBACK}`,
   grotesk: (s) => `700 ${s}px "Space Grotesk", ${FALLBACK}`,
+  catamaran: (s) => `900 ${s}px Catamaran, ${FALLBACK}`,
 };
 const bodyFont = (s, w = 500) => `${w} ${s}px Inter, Poppins, ${FALLBACK}`;
 

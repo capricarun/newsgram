@@ -179,7 +179,7 @@ def reverb(buf, secs=1.8, mix=0.25, damp=5000):
     return buf + out * mix
 
 
-def master(buf, name, title, mood, bpm):
+def master(buf, name, title, mood, bpm, group='Background beds'):
     buf = hp(buf, 30)
     buf = np.tanh(buf * 1.2) / np.tanh(1.2)
     peak = np.max(np.abs(buf))
@@ -194,7 +194,7 @@ def master(buf, name, title, mood, bpm):
         w.setsampwidth(2)
         w.setframerate(SR)
         w.writeframes(pcm.tobytes())
-    return {'id': name, 'title': title, 'mood': mood, 'bpm': bpm, 'file': f'/music/{name}.mp3', 'duration': LEN}
+    return {'id': name, 'title': title, 'mood': mood, 'bpm': bpm, 'group': group, 'file': f'/music/{name}.mp3', 'duration': LEN}
 
 
 def grid(bpm):
@@ -399,7 +399,292 @@ def desi_beat():
     return master(reverb(buf, 2.2, 0.35) + reverb(drums, 0.8, 0.1), 'desi-beat', 'Desi Beat', 'Indian · festive', bpm)
 
 
-for fn in (breaking_pulse, headline_rise, morning_brief, lofi_desk, tech_wave, desi_beat):
+
+# ================= NEWS TONES =================
+def impact(len_s=2.5):
+    """Trailer-style hit: sub boom + noise crash."""
+    n = int(SR * len_s)
+    t = np.arange(n) / SR
+    boom = kick(len_s, 110, 32, 1.5)[:n]
+    sub = np.sin(2 * np.pi * 42 * t) * np.exp(-t * 2.2) * 0.8
+    crash = lp(rng.standard_normal(n), 6000) * np.exp(-t * 3.5) * 0.35
+    return boom + sub + crash
+
+
+def whoosh_up(len_s=1.0):
+    """Reverse-cymbal style riser that lands on the downbeat."""
+    n = int(SR * len_s)
+    t = np.arange(n) / SR
+    x = hp(rng.standard_normal(n), 2500) * (t / len_s) ** 3
+    return x * 0.5
+
+
+def brass_stab(freqs, len_s=0.35):
+    n = int(SR * len_s)
+    t = np.arange(n) / SR
+    x = np.zeros(n)
+    for f in freqs:
+        for d in (-0.006, 0.0, 0.007):
+            x += saw(f, n, d)
+    x /= len(freqs) * 3
+    bright = lp(x, 4200)
+    dark = lp(x, 700)
+    e = np.exp(-t * 14)
+    return (bright * e + dark * (1 - e)) * env(n, a=0.004, d=len_s, s=0.6, r=0.06, hold=len_s - 0.06)
+
+
+def bell(f, len_s=2.0, index=2.2):
+    n = int(SR * len_s)
+    t = np.arange(n) / SR
+    mod = index * np.exp(-t * 2.5) * np.sin(2 * np.pi * f * 3.5 * t)
+    return np.sin(2 * np.pi * f * t + mod) * np.exp(-t * 2.2)
+
+
+def tom(pitch=110, len_s=0.6):
+    return tabla(pitch, len_s, 1.8, 0.15) * 1.2
+
+
+def beep(f, len_s=0.09):
+    n = int(SR * len_s)
+    x = square(f, n, 0.5) * 0.35 + sine(f, n) * 0.4
+    return lp(x, 5000) * env(n, a=0.002, d=99, s=1, r=0.01, hold=len_s - 0.01)
+
+
+def news_bed(buf, drums, bpm, prog, start_bar=0, bars=None, drive=True):
+    """Shared urgent 16th-note bed used under the news tones."""
+    b = grid(bpm)
+    bars = bars or int(LEN / (4 * b)) + 1
+    for bar in range(start_bar, bars):
+        root, ch = prog[bar % len(prog)]
+        t0 = bar * 4 * b
+        place(buf, pad([note(n + 12) for n in ch], int(4 * b * SR), 1500, 0.3), t0, 0.25)
+        for s16 in range(16):
+            acc = 1.0 if s16 % 4 == 0 else 0.6
+            place(buf, pluck(note(root - 12 + (12 if s16 % 8 == 6 else 0)), b / 4 * 0.85, 1100, 14), t0 + s16 * b / 4, 0.28 * acc)
+        if drive:
+            for q in range(4):
+                place(drums, kick(0.4), t0 + q * b, 0.8)
+                if q in (1, 3):
+                    place(drums, snare(0.3, 200, 0.9), t0 + q * b, 0.45)
+                place(drums, hat(0.05), t0 + q * b + b / 2, 0.3)
+
+
+# 7. Breaking News — hit, brass fanfare, driving bed
+def breaking_news():
+    bpm = 128
+    b = grid(bpm)
+    buf = np.zeros((2, N))
+    drums = np.zeros((2, N))
+    place(buf, whoosh_up(1.0), 0.0, 0.8)
+    hit_t = 1.0
+    place(drums, impact(), hit_t, 1.0)
+    # "DA - DA - DAAAA" stabs in D minor
+    stabs = [(0.0, [62, 65, 69], 0.22), (0.35, [62, 65, 69], 0.22), (0.7, [58, 62, 65, 70], 0.9)]
+    for off, ch, ln in stabs:
+        place(buf, brass_stab([note(n) for n in ch], ln), hit_t + off, 0.7)
+    for k in range(10):
+        place(drums, tom(95 + k * 3, 0.4), hit_t + 1.7 + k * 0.06, 0.25 + k * 0.05)
+    start = hit_t + 2.4
+    prog = [(50, [62, 65, 69]), (46, [58, 62, 65]), (48, [60, 64, 67]), (45, [57, 61, 64])]
+    sub = np.zeros((2, N))
+    news_bed(sub, drums, bpm, prog)
+    shift = int(start * SR)
+    buf[:, shift:] += sub[:, : N - shift]
+    for bar in range(0, 20, 4):
+        t = start + bar * 4 * b
+        if t < LEN - 3:
+            place(buf, brass_stab([note(n) for n in (62, 65, 69)], 0.3), t, 0.45)
+            place(drums, impact(1.5), t, 0.35)
+    return master(reverb(buf, 1.8, 0.3) + drums, 'breaking-news', 'Breaking News', 'Hit + fanfare', bpm, 'News tones')
+
+
+# 8. Flash News — alert bleeps then pulsing bed
+def flash_news():
+    bpm = 120
+    b = grid(bpm)
+    buf = np.zeros((2, N))
+    drums = np.zeros((2, N))
+    pattern = [1320, 1320, 990, 1320, 0, 1320, 990, 1760]
+    for rep in range(2):
+        for k, f in enumerate(pattern):
+            if f:
+                place(buf, beep(f), rep * 1.2 + k * 0.12, 0.35, pan=0.4 if k % 2 else -0.4)
+    place(drums, impact(1.8), 2.4, 0.8)
+    prog = [(52, [64, 67, 71]), (48, [60, 64, 67]), (50, [62, 66, 69]), (47, [59, 62, 66])]
+    sub = np.zeros((2, N))
+    news_bed(sub, drums, bpm, prog)
+    shift = int(2.4 * SR)
+    buf[:, shift:] += sub[:, : N - shift]
+    # alert blips every 2 bars
+    for bar in range(0, 16, 2):
+        t = 2.4 + bar * 4 * b + 3.5 * b
+        if t < LEN - 2:
+            place(buf, beep(1760, 0.07), t, 0.2)
+            place(buf, beep(1320, 0.07), t + 0.1, 0.2)
+    for s in range(int((LEN - 2.4) / (b / 4))):
+        place(drums, tick(), 2.4 + s * b / 4, 0.18 if s % 4 else 0.35, pan=0.3)
+    return master(reverb(buf, 1.2, 0.25) + drums, 'flash-news', 'Flash News', 'Alert bleeps', bpm, 'News tones')
+
+
+# 9. Top Headlines — news-room tom groove
+def top_headlines():
+    bpm = 100
+    b = grid(bpm)
+    buf = np.zeros((2, N))
+    drums = np.zeros((2, N))
+    place(drums, impact(), 0.0, 0.9)
+    place(buf, brass_stab([note(n) for n in (55, 62, 67, 70)], 1.2), 0.0, 0.5)
+    groove = [(0, 70), (0.75, 95), (1.5, 70), (2, 130), (2.5, 95), (3, 70), (3.25, 70), (3.5, 130)]
+    bars = int(LEN / (4 * b)) + 1
+    for bar in range(1, bars):
+        t0 = bar * 4 * b - 2 * b  # groove enters half a bar after the opening hit
+        for pos, p in groove:
+            place(drums, tom(p, 0.5), t0 + pos * b, 0.55, pan=(p - 95) / 120)
+        place(drums, snare(0.3, 190, 1.0), t0 + b, 0.35)
+        place(drums, snare(0.3, 190, 1.0), t0 + 3 * b, 0.35)
+        for q in range(8):
+            place(drums, hat(0.04), t0 + q * b / 2, 0.2)
+        place(buf, bass(note(43), 4 * b * 0.95, 260), t0, 0.5)
+        if bar % 2 == 0:
+            place(buf, brass_stab([note(n) for n in (55, 62, 67)], 0.25), t0, 0.35)
+            place(buf, brass_stab([note(n) for n in (53, 60, 65)], 0.25), t0 + 2.5 * b, 0.3)
+        place(buf, pad([note(n) for n in (67, 70, 74)], int(4 * b * SR), 1200, 0.4), t0, 0.15)
+    return master(reverb(buf, 1.5, 0.25) + reverb(drums, 0.9, 0.12), 'top-headlines', 'Top Headlines', 'News drums', bpm, 'News tones')
+
+
+# 10. Countdown Clock — tick-tock tension with hits
+def countdown_clock():
+    bpm = 120
+    b = grid(bpm)
+    buf = np.zeros((2, N))
+    drums = np.zeros((2, N))
+    beats = int(LEN / b)
+    for k in range(beats):
+        t0 = k * b
+        f = 3000 if k % 2 == 0 else 2200
+        n = int(SR * 0.05)
+        tt = np.arange(n) / SR
+        clk = (np.sin(2 * np.pi * f * tt) + hp(rng.standard_normal(n), 4000) * 0.4) * np.exp(-tt * 180) * 0.5
+        place(drums, clk, t0, 0.6, pan=0.25 if k % 2 else -0.25)
+        if k % 8 == 0:
+            place(drums, impact(1.2), t0, 0.45)
+        if k % 2 == 0:
+            place(drums, kick(0.3, 120, 50, 0.6), t0, 0.5)
+    # rising semitone pulses (tension)
+    for bar in range(int(LEN / (4 * b)) + 1):
+        root = 45 + (bar % 8)
+        t0 = bar * 4 * b
+        for e in range(8):
+            place(buf, pluck(note(root - 12), b / 2 * 0.9, 700, 10), t0 + e * b / 2, 0.35)
+        place(buf, pad([note(root + 12), note(root + 15), note(root + 19)], int(4 * b * SR), 900 + bar * 120, 0.8), t0, 0.22)
+    return master(reverb(buf, 1.6, 0.3) + drums, 'countdown-clock', 'Countdown Clock', 'Ticking tension', bpm, 'News tones')
+
+
+# 11. Bulletin Intro — timpani roll, hit, bell motif, warm bed
+def bulletin_intro():
+    bpm = 92
+    b = grid(bpm)
+    buf = np.zeros((2, N))
+    drums = np.zeros((2, N))
+    roll_len = 1.6
+    k = 0
+    while k * 0.045 < roll_len:
+        place(drums, tom(70, 0.5), k * 0.045, 0.08 + 0.35 * (k * 0.045 / roll_len) ** 2)
+        k += 1
+    place(drums, impact(), roll_len, 1.0)
+    motif = [74, 77, 81, 79]  # news-style 4-note bell motif
+    for rep in range(2):
+        for i, n in enumerate(motif):
+            place(buf, bell(note(n), 2.2), roll_len + 0.1 + rep * 2.4 + i * 0.3, 0.35, pan=-0.3 + i * 0.2)
+    prog = [[50, 57, 62, 65], [46, 53, 58, 62], [43, 50, 55, 58], [45, 52, 57, 61]]
+    bars = int(LEN / (4 * b)) + 1
+    for bar in range(1, bars):
+        t0 = roll_len + bar * 4 * b - 4 * b + 0.2
+        ch = prog[bar % 4]
+        place(buf, pad([note(n) for n in ch], int(4 * b * SR), 1500, 0.8), t0, 0.35)
+        place(buf, bass(note(ch[0] - 12), 4 * b * 0.9, 300), t0, 0.4)
+        for q in range(4):
+            place(drums, kick(0.4, 100, 45, 0.4), t0 + q * b, 0.5 if q in (0, 2) else 0)
+            place(drums, hat(0.05), t0 + q * b + b / 2, 0.18)
+        if bar % 4 == 0:
+            for i, n in enumerate(motif):
+                place(buf, bell(note(n), 1.8, 1.5), t0 + i * b / 2, 0.18)
+    return master(reverb(buf, 2.6, 0.35) + drums, 'bulletin-intro', 'Bulletin Intro', 'Timpani + bells', bpm, 'News tones')
+
+
+# 12. Urgent Alert — siren sweep with heavy hits
+def urgent_alert():
+    bpm = 140
+    b = grid(bpm)
+    buf = np.zeros((2, N))
+    drums = np.zeros((2, N))
+    t = np.arange(N) / SR
+    lfo = 0.5 * (1 - np.cos(2 * np.pi * 0.5 * t))
+    f = 520 + 380 * lfo
+    siren = np.sin(2 * np.pi * np.cumsum(f) / SR)
+    siren = bp(siren + 0.3 * np.sign(siren), 400, 2500) * 0.12
+    siren *= np.clip(t / 0.5, 0, 1) * (1 - 0.6 * np.clip((t - 4) / 2, 0, 1))
+    buf[0] += siren
+    buf[1] += siren
+    place(drums, impact(), 0.0, 0.9)
+    prog = [(45, [57, 60, 64]), (45, [57, 60, 64]), (41, [53, 57, 60]), (43, [55, 59, 62])]
+    news_bed(buf, drums, bpm, prog, start_bar=1)
+    for bar in range(1, int(LEN / (4 * b)) + 1, 2):
+        place(drums, impact(1.2), bar * 4 * b, 0.4)
+    return master(reverb(buf, 1.3, 0.25) + drums, 'urgent-alert', 'Urgent Alert', 'Siren + hits', bpm, 'News tones')
+
+
+# 13. Tamil Mass Beat — parai/thavil groove, nadhaswaram-style lead
+def nadhaswaram(f0, f1, len_s, glide=0.08):
+    n = int(SR * len_s)
+    t = np.arange(n) / SR
+    f = f1 + (f0 - f1) * np.exp(-t / glide) if f0 else np.full(n, f1)
+    f = f * (1 + 0.012 * np.sin(2 * np.pi * 6 * t) * np.clip((t - 0.1) * 4, 0, 1))
+    ph = 2 * np.pi * np.cumsum(f) / SR
+    x = np.sin(ph) + 0.6 * np.sin(2 * ph) + 0.45 * np.sin(3 * ph) + 0.3 * np.sin(4 * ph) + 0.2 * np.sin(5 * ph)
+    x = bp(x, 500, 4000) * 1.4
+    return x * env(n, a=0.03, d=99, s=1, r=0.06, hold=len_s - 0.06)
+
+
+def tamil_mass():
+    bpm = 104
+    b = grid(bpm)
+    buf = np.zeros((2, N))
+    drums = np.zeros((2, N))
+    sa = 55  # G
+    bars = int(LEN / (4 * b)) + 1
+    # parai / thavil pattern (dappankuthu feel): ta . ka ta | ta ka . ta
+    hits = [(0, 'low'), (0.75, 'high'), (1.0, 'low'), (1.5, 'high'), (2.0, 'low'), (2.5, 'high'), (2.75, 'high'), (3.0, 'low'), (3.5, 'high')]
+    for bar in range(bars):
+        t0 = bar * 4 * b
+        for pos, kind in hits:
+            if kind == 'low':
+                place(drums, tabla(85, 0.5, 1.7, 0.4), t0 + pos * b, 0.9, pan=-0.15)
+            else:
+                place(drums, tabla(330, 0.25, 1.1, 1.3), t0 + pos * b, 0.55, pan=0.2)
+        place(drums, clap(), t0 + b, 0.45)
+        place(drums, clap(), t0 + 3 * b, 0.45)
+        for q in range(8):
+            place(drums, hat(0.04), t0 + q * b / 2, 0.22)
+        place(buf, bass(note(sa - 24), b * 1.5, 300), t0, 0.5)
+        place(buf, bass(note(sa - 24 + 7), b * 1.2, 300), t0 + 2 * b, 0.4)
+        # drone
+        place(buf, pad([note(sa - 12), note(sa - 5)], int(4 * b * SR), 800, 0.2), t0, 0.18)
+    # Mayamalavagowla-flavoured phrase: S R1 G3 M1 P D1 N3 S'
+    scale = [0, 1, 4, 5, 7, 8, 11, 12, 13, 16]
+    phrase = [(4, 0.5), (5, 0.5), (4, 0.5), (2, 0.5), (4, 1), (7, 1), (6, 0.5), (5, 0.5), (4, 1), (2, 0.5), (1, 0.5), (0, 2)]
+    t = 2 * 4 * b
+    prev = None
+    while t < LEN - 4:
+        for deg, dur in phrase:
+            f1 = note(sa + 12 + scale[deg])
+            place(buf, nadhaswaram(prev, f1, dur * b * 0.97), t, 0.16, pan=0.1)
+            prev = f1
+            t += dur * b
+        t += 4 * b
+    return master(reverb(buf, 1.6, 0.3) + reverb(drums, 0.7, 0.1), 'tamil-mass', 'Tamil Mass Beat', 'Parai + nadhaswaram', bpm, 'Background beds')
+
+for fn in (breaking_news, flash_news, top_headlines, countdown_clock, bulletin_intro, urgent_alert, tamil_mass, breaking_pulse, headline_rise, morning_brief, lofi_desk, tech_wave, desi_beat):
     info = fn()
     catalog.append(info)
     print('composed', info['title'])

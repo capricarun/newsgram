@@ -16,6 +16,7 @@ function walkJsonLd(node, out) {
   const type = [].concat(node['@type'] || []).join(',');
   if (/Article|NewsArticle|LiveBlogPosting/i.test(type)) {
     if (node.articleBody && !out.body) out.body = stripHtml(node.articleBody);
+    if (node.datePublished && !out.published) out.published = node.datePublished;
     const img = [].concat(node.image || []).map((i) => (typeof i === 'string' ? i : i?.url)).filter(Boolean);
     out.images.push(...img);
     if (node.video) walkJsonLd(node.video, out);
@@ -66,6 +67,10 @@ export async function getArticle(url, { lite = false } = {}) {
       title: meta('meta[property="og:title"]') || $('title').text().trim(),
       description: meta('meta[property="og:description"]') || meta('meta[name="description"]'),
       image: images[0] || '',
+      published: (() => {
+        const d = new Date(meta('meta[property="article:published_time"]') || meta('meta[name="publish-date"]') || meta('meta[itemprop="datePublished"]') || out.published || '');
+        return isNaN(d) ? '' : d.toISOString();
+      })(),
       images: [...new Set(images)].slice(0, 8),
       videos: uniqVideos.slice(0, 5),
       text: '',

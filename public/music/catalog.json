@@ -1,9 +1,73 @@
 [
   {
+    "id": "breaking-news",
+    "title": "Breaking News",
+    "mood": "Hit + fanfare",
+    "bpm": 128,
+    "group": "News tones",
+    "file": "/music/breaking-news.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "flash-news",
+    "title": "Flash News",
+    "mood": "Alert bleeps",
+    "bpm": 120,
+    "group": "News tones",
+    "file": "/music/flash-news.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "top-headlines",
+    "title": "Top Headlines",
+    "mood": "News drums",
+    "bpm": 100,
+    "group": "News tones",
+    "file": "/music/top-headlines.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "countdown-clock",
+    "title": "Countdown Clock",
+    "mood": "Ticking tension",
+    "bpm": 120,
+    "group": "News tones",
+    "file": "/music/countdown-clock.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "bulletin-intro",
+    "title": "Bulletin Intro",
+    "mood": "Timpani + bells",
+    "bpm": 92,
+    "group": "News tones",
+    "file": "/music/bulletin-intro.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "urgent-alert",
+    "title": "Urgent Alert",
+    "mood": "Siren + hits",
+    "bpm": 140,
+    "group": "News tones",
+    "file": "/music/urgent-alert.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "tamil-mass",
+    "title": "Tamil Mass Beat",
+    "mood": "Parai + nadhaswaram",
+    "bpm": 104,
+    "group": "Background beds",
+    "file": "/music/tamil-mass.mp3",
+    "duration": 30.0
+  },
+  {
     "id": "breaking-pulse",
     "title": "Breaking Pulse",
     "mood": "Urgent \u00b7 news",
     "bpm": 122,
+    "group": "Background beds",
     "file": "/music/breaking-pulse.mp3",
     "duration": 30.0
   },
@@ -12,6 +76,7 @@
     "title": "Headline Rise",
     "mood": "Cinematic \u00b7 big story",
     "bpm": 90,
+    "group": "Background beds",
     "file": "/music/headline-rise.mp3",
     "duration": 30.0
   },
@@ -20,6 +85,7 @@
     "title": "Morning Brief",
     "mood": "Upbeat \u00b7 positive",
     "bpm": 112,
+    "group": "Background beds",
     "file": "/music/morning-brief.mp3",
     "duration": 30.0
   },
@@ -28,6 +94,7 @@
     "title": "Lo-fi Desk",
     "mood": "Chill \u00b7 explainer",
     "bpm": 80,
+    "group": "Background beds",
     "file": "/music/lofi-desk.mp3",
     "duration": 30.0
   },
@@ -36,6 +103,7 @@
     "title": "Tech Wave",
     "mood": "Tech \u00b7 gadgets",
     "bpm": 104,
+    "group": "Background beds",
     "file": "/music/tech-wave.mp3",
     "duration": 30.0
   },
@@ -44,6 +112,7 @@
     "title": "Desi Beat",
     "mood": "Indian \u00b7 festive",
     "bpm": 98,
+    "group": "Background beds",
     "file": "/music/desi-beat.mp3",
     "duration": 30.0
   }

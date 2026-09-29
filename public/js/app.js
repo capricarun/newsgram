@@ -137,24 +137,30 @@ $$('.step').forEach((b) => b.addEventListener('click', () => !b.disabled && go(N
 /* ---------------- step 1: sources ---------------- */
 function renderSources() {
   const { sources, categories, features } = state.config;
-  $('#sourceGrid').innerHTML = sources
-    .map(
-      (s) => `<button class="source-card" style="--c:${s.color}" data-id="${s.id}" aria-pressed="${state.sources.has(s.id)}">
+  const GROUPS = [
+    { id: 'national', label: 'National · English' },
+    { id: 'tamil', label: 'Tamil · தமிழ்' },
+  ];
+  const card = (s) => `<button class="source-card" style="--c:${s.color}" data-id="${s.id}" aria-pressed="${state.sources.has(s.id)}">
         <span class="s-name"><span class="s-dot"></span>${esc(s.name)}</span>
-        <span class="s-meta">${esc(s.domain)} · @${esc(s.x)}</span>
+        <span class="s-meta">${esc(s.domain)}${s.only ? ' · cinema & TN only' : ` · @${esc(s.x)}`}</span>
         <span class="s-check">✓</span>
-      </button>`,
-    )
-    .join('');
-  $$('#sourceGrid .source-card').forEach((b) =>
+      </button>`;
+  $('#sourceGrid').innerHTML = GROUPS.map((g) => {
+    const list = sources.filter((s) => (s.group || 'national') === g.id);
+    return list.length
+      ? `<div class="source-group"><div class="group-head"><h3>${g.label}</h3><button class="link" data-group="${g.id}">Select group</button></div><div class="source-grid-inner">${list.map(card).join('')}</div></div>`
+      : '';
+  }).join('');
+  $$('#sourceGrid [data-group]').forEach((b) =>
     b.addEventListener('click', () => {
-      const id = b.dataset.id;
-      state.sources.has(id) ? state.sources.delete(id) : state.sources.add(id);
-      b.setAttribute('aria-pressed', state.sources.has(id));
+      const ids = sources.filter((s) => (s.group || 'national') === b.dataset.group).map((s) => s.id);
+      const allOn = ids.every((id) => state.sources.has(id));
+      ids.forEach((id) => (allOn ? state.sources.delete(id) : state.sources.add(id)));
+      $$('#sourceGrid .source-card').forEach((c) => c.setAttribute('aria-pressed', state.sources.has(c.dataset.id)));
       updatePick();
     }),
   );
-
   $('#catChips').innerHTML = categories
     .map((c) => `<button class="chip" role="radio" data-id="${c.id}" aria-checked="${c.id === state.category}">${esc(c.label)}</button>`)
     .join('');
@@ -239,8 +245,10 @@ function renderStatus() {
   $('#statusRow').innerHTML = state.news.status
     .map((s) => {
       const src = state.config.sources.find((x) => x.id === s.id);
-      const cls = !s.count ? 'err' : /news\.google/.test(s.feed || '') ? 'gn' : '';
-      const tip = !s.count ? s.errors.join('\n') : /news\.google/.test(s.feed || '') ? 'Publisher feed failed — using Google News (no images; add one in the studio)' : s.feed;
+      if (s.via === 'unsupported') return `<span class="status-pill skip" style="--c:${src?.color}" title="${esc(s.errors[0] || '')}"><span class="d"></span>${esc(s.name)} · n/a</span>`;
+      const cls = !s.count ? 'err' : s.via === 'gnews' ? 'gn' : '';
+      const how = { rss: 'RSS feed', 'rss+page': 'RSS + section page', page: 'section page', gnews: 'Google News (no images — add one in the studio)' }[s.via] || '';
+      const tip = !s.count ? s.errors.join('\n') : `${how}\n${s.feed || ''}`;
       return `<span class="status-pill ${cls}" style="--c:${src?.color}" title="${esc(tip)}"><span class="d"></span>${esc(s.name)} · ${s.count || 'failed'}</span>`;
     })
     .join('');
@@ -775,15 +783,19 @@ async function loadCatalog() {
 
 function trackRows() {
   const rows = [{ id: 'none', title: 'No music', mood: 'Silent reel' }, ...music.catalog];
-  if (music.custom) rows.push({ id: 'custom', title: music.custom.name, mood: 'Your upload', file: music.custom.url });
+  if (music.custom) rows.push({ id: 'custom', title: music.custom.name, mood: 'Uploaded track', file: music.custom.url });
   return rows;
 }
 
 function renderTracks() {
+  let lastGroup = null;
   $('#trackList').innerHTML = trackRows()
     .map((t) => {
       const playing = music.preview?.id === t.id;
-      return `<div class="mtrack" role="radio" tabindex="0" aria-checked="${t.id === music.id}" data-id="${esc(t.id)}">
+      const group = t.id === 'none' ? null : t.id === 'custom' ? 'Your upload' : t.group || 'Background beds';
+      const head = group && group !== lastGroup ? `<div class="mgroup">${esc(group)}</div>` : '';
+      lastGroup = group || lastGroup;
+      return `${head}<div class="mtrack" role="radio" tabindex="0" aria-checked="${t.id === music.id}" data-id="${esc(t.id)}">
         ${t.file ? `<button class="play ${playing ? 'is-playing' : ''}" data-play="${esc(t.id)}" aria-label="${playing ? 'Pause' : 'Play'} ${esc(t.title)}">${playing ? '❚❚' : '▶'}</button>` : '<span class="play" aria-hidden="true">∅</span>'}
         <span><span class="t-name">${esc(t.title)}${playing ? '<span class="eq"><i></i><i></i><i></i></span>' : ''}</span><span class="t-meta">${esc(t.mood || '')}${t.bpm ? ` · ${t.bpm} bpm` : ''}</span></span>
         <span class="t-tick">✓</span>

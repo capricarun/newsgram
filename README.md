@@ -6,7 +6,10 @@ Turn the latest stories from India's big newsrooms into AI-rephrased, 1:1 Instag
 
 | Sources (preset) | Categories |
 |---|---|
-| The Hindu · Indian Express · Times of India · Hindustan Times · NDTV · CNN-News18 (formerly CNN-IBN) — plus their official X accounts | Top · India · World · Business · Sports · Entertainment · Tech |
+| **National (English):** The Hindu · Indian Express · Times of India · Hindustan Times · NDTV · CNN-News18 (formerly CNN-IBN) | Top · Tamil Nadu · India · World · Business · Sports · Cinema & Entertainment · Tech |
+| **Tamil:** Thanthi TV · Puthiya Thalaimurai · Hindu Tamil Thisai · Polimer News · Behindwoods (cinema & TN only) | |
+
+Each source is read from its RSS feed; when a feed is thin or missing the app reads the publisher's section page directly, and Google News (site search) is the last resort.
 
 ## Run it
 
@@ -16,15 +19,15 @@ cp .env.example .env      # add your keys (all optional)
 npm start                 # http://localhost:3000
 ```
 
-- `npm run check-feeds` — tests every preset RSS feed and shows item/image counts. If a publisher moves a feed, edit `server/sources.js`. Feeds that fail fall back to Google News automatically (no images; add one in the studio).
+- `npm run check-feeds` (or `npm run check-feeds -- tamil`) — tests every preset feed and shows item/image counts. If a publisher moves a feed, edit `server/sources.js`. Feeds that fail fall back to Google News automatically (no images; add one in the studio).
 - `npm run mock` — offline sample data for design work.
 
 ## Features
 
 - **AI rewriting** (Anthropic Claude): batch-rewrites the story grid, and the studio's *Rephrase* button rewrites from the full original article, including an Instagram caption with hashtags. Tones: punchy / neutral / explainer. Languages: English, Hindi, Tamil, Telugu, Marathi, Bengali. Without a key the app falls back to a basic trim-and-shorten rewrite.
-- **Studio**: 1080×1080 canvas, 4 layouts (Spotlight, Split, Frame, Bold), 6 accent colours, 4 headline fonts, drag to reposition, scroll/pinch/slider to zoom, “fit whole image” with blurred backdrop, shade control, alternate article images, upload or paste your own. Wrap words in `*stars*` to highlight them.
+- **Studio**: 1080×1080 canvas, 4 layouts (Spotlight, Split, Frame, Bold), 6 accent colours, 5 headline fonts (incl. Catamaran for bold Tamil), drag to reposition, scroll/pinch/slider to zoom, “fit whole image” with blurred backdrop, shade control, alternate article images, upload or paste your own. Wrap words in `*stars*` to highlight them.
 - **Downloads**: JPG / PNG, animated MP4 reel (5–15 s, zoom + word-by-word headline reveal), and the source article's video when it exposes a direct file.
-- **Music for reels**: pick from 6 built-in tracks (Breaking Pulse, Headline Rise, Morning Brief, Lo-fi Desk, Tech Wave, Desi Beat) or upload your own; preview, volume and start point; fades in/out and is baked into the MP4 and the Instagram Reel. The built-in tracks are composed from scratch by `scripts/compose-music.py` (pure synthesis — no samples), so they're free to use anywhere.
+- **Music for reels**: 13 built-in tracks — *News tones* (Breaking News, Flash News, Top Headlines, Countdown Clock, Bulletin Intro, Urgent Alert) and *Background beds* (Tamil Mass Beat, Breaking Pulse, Headline Rise, Morning Brief, Lo-fi Desk, Tech Wave, Desi Beat) — or upload your own; preview, volume and start point; fades in/out and is baked into the MP4 and the Instagram Reel. The built-in tracks are composed from scratch by `scripts/compose-music.py` (pure synthesis — no samples), so they're free to use anywhere.
 - **Instagram**: publishes images or Reels via the official Content Publishing API.
 
 ## Instagram setup

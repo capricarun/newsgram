@@ -10,11 +10,17 @@ const HEADLINES = [
   ['New AI rules for social platforms come into force', 'Platforms must now label AI-generated images and videos and remove flagged deepfakes within 36 hours, under the amended IT rules notified by the ministry.'],
 ];
 
+const TA_HEADLINES = [
+  ['சென்னையில் கனமழை: பள்ளிகளுக்கு நாளை விடுமுறை', 'சென்னை மற்றும் அருகிலுள்ள மாவட்டங்களில் கனமழை பெய்து வருவதால் பள்ளிகளுக்கு நாளை விடுமுறை அளிக்கப்பட்டுள்ளது என ஆட்சியர் தெரிவித்தார்.'],
+  ['மெட்ரோ இரண்டாம் கட்டம்: பூந்தமல்லி - வடபழனி வழித்தடம் விரைவில் திறப்பு', 'பூந்தமல்லி முதல் வடபழனி வரையிலான மெட்ரோ வழித்தடத்தில் சோதனை ஓட்டம் நிறைவடைந்துள்ளது.'],
+  ['தங்கம் விலை சவரனுக்கு ரூ.200 குறைந்தது', 'ஆபரணத் தங்கத்தின் விலை இன்று சவரனுக்கு ரூ.200 குறைந்து விற்பனையாகிறது.'],
+];
+
 export function mockItems(sourceIds, category) {
   const sources = SOURCES.filter((s) => sourceIds.includes(s.id));
   const items = [];
   sources.forEach((s, si) => {
-    HEADLINES.forEach(([title, summary], hi) => {
+    (s.lang === 'ta' ? TA_HEADLINES : HEADLINES).forEach(([title, summary], hi) => {
       if ((hi + si) % 2 && hi > 2) return;
       items.push({
         id: `m${si}${hi}`,
