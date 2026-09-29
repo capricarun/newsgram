@@ -1,5 +1,5 @@
 import { renderCard, SIZE, ACCENTS, TEMPLATES, imageArea, clampPan } from './render.js';
-import { recordReel, pickMime } from './reel.js';
+import { recordReel, pickMime, audioContext, playMusic } from './reel.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -674,7 +674,9 @@ async function makeReel() {
   $$('#view-3 button, #view-3 input, #view-3 textarea, #view-3 select').forEach((el) => (el.dataset.wasDisabled = el.disabled, (el.disabled = true)));
   try {
     const dur = Number($('#duration').value);
-    return await recordReel(canvas, (anim) => renderCard(ctx, card, anim), dur, (p) => ($('#recText').textContent = `Recording reel… ${Math.round(p * 100)}%`));
+    const m = await selectedMusic();
+    $('#recText').textContent = 'Recording reel…';
+    return await recordReel(canvas, (anim) => renderCard(ctx, card, anim), dur, (p) => ($('#recText').textContent = `Recording reel… ${Math.round(p * 100)}%`), m);
   } finally {
     state.busy = false;
     $('#recOverlay').hidden = true;
@@ -684,7 +686,10 @@ async function makeReel() {
 }
 
 async function uploadMedia(blob, normalize = false) {
-  const res = await fetch(`/api/media${normalize ? '?normalize=1' : ''}`, { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0] }, body: blob });
+  const q = new URLSearchParams();
+  if (normalize) q.set('normalize', '1');
+  if (blob.hasAudio) q.set('audio', '1');
+  const res = await fetch(`/api/media?${q}`, { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0] }, body: blob });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Upload failed');
   return data;
@@ -692,6 +697,7 @@ async function uploadMedia(blob, normalize = false) {
 
 $('#dlReel').addEventListener('click', async () => {
   const btn = $('#dlReel');
+  stopPreviewTrack();
   try {
     const blob = await makeReel();
     if (!blob) return;
@@ -712,24 +718,173 @@ $('#dlReel').addEventListener('click', async () => {
   }
 });
 
-$('#previewReel').addEventListener('click', () => {
+async function previewReel() {
   if (state.busy) return;
+  stopPreviewTrack();
   const dur = Number($('#duration').value);
-  const t0 = performance.now();
   state.busy = true;
+  let src = null;
+  try {
+    const m = await selectedMusic();
+    if (m) {
+      const actx = audioContext();
+      if (actx.state === 'suspended') await actx.resume();
+      src = playMusic(actx, actx.destination, m, dur);
+    }
+  } catch (e) {
+    toast(`Couldn't play music: ${e.message}`, { error: true });
+  }
+  const t0 = performance.now();
   const frame = (now) => {
     const t = (now - t0) / 1000;
     renderCard(ctx, card, { t: Math.min(t, dur), dur });
     if (t < dur) requestAnimationFrame(frame);
     else {
       state.busy = false;
+      try { src?.stop(); } catch {}
       draw();
     }
   };
   requestAnimationFrame(frame);
+}
+$('#previewReel').addEventListener('click', previewReel);
+$('#previewReel2').addEventListener('click', previewReel);
+
+/* ---------------- music ---------------- */
+const music = {
+  catalog: [],
+  id: store.get('musicId', 'none'),
+  volume: store.get('musicVol', 80),
+  start: 0,
+  custom: null, // { name, url }
+  buffers: new Map(),
+  preview: null, // { id, audio }
+};
+
+async function loadCatalog() {
+  try {
+    music.catalog = await (await fetch('/music/catalog.json')).json();
+  } catch {
+    music.catalog = [];
+  }
+  if (music.id !== 'none' && !music.catalog.some((t) => t.id === music.id)) music.id = 'none';
+  $('#musicVol').value = music.volume;
+  $('#mvolOut').textContent = `${music.volume}%`;
+  renderTracks();
+}
+
+function trackRows() {
+  const rows = [{ id: 'none', title: 'No music', mood: 'Silent reel' }, ...music.catalog];
+  if (music.custom) rows.push({ id: 'custom', title: music.custom.name, mood: 'Your upload', file: music.custom.url });
+  return rows;
+}
+
+function renderTracks() {
+  $('#trackList').innerHTML = trackRows()
+    .map((t) => {
+      const playing = music.preview?.id === t.id;
+      return `<div class="mtrack" role="radio" tabindex="0" aria-checked="${t.id === music.id}" data-id="${esc(t.id)}">
+        ${t.file ? `<button class="play ${playing ? 'is-playing' : ''}" data-play="${esc(t.id)}" aria-label="${playing ? 'Pause' : 'Play'} ${esc(t.title)}">${playing ? '❚❚' : '▶'}</button>` : '<span class="play" aria-hidden="true">∅</span>'}
+        <span><span class="t-name">${esc(t.title)}${playing ? '<span class="eq"><i></i><i></i><i></i></span>' : ''}</span><span class="t-meta">${esc(t.mood || '')}${t.bpm ? ` · ${t.bpm} bpm` : ''}</span></span>
+        <span class="t-tick">✓</span>
+      </div>`;
+    })
+    .join('');
+  $$('#trackList .mtrack').forEach((row) => {
+    const pick = () => {
+      music.id = row.dataset.id;
+      if (music.id !== 'custom') store.set('musicId', music.id);
+      renderTracks();
+      updateMusicNote();
+    };
+    row.addEventListener('click', (e) => (e.target.closest('[data-play]') ? null : pick()));
+    row.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), pick()));
+  });
+  $$('#trackList [data-play]').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePreviewTrack(b.dataset.play);
+    }),
+  );
+}
+
+function trackById(id) {
+  return trackRows().find((t) => t.id === id);
+}
+
+function stopPreviewTrack() {
+  if (music.preview) {
+    music.preview.audio.pause();
+    music.preview = null;
+    renderTracks();
+  }
+}
+
+function togglePreviewTrack(id) {
+  const was = music.preview?.id;
+  stopPreviewTrack();
+  if (was === id) return;
+  const t = trackById(id);
+  const audio = new Audio(t.file);
+  audio.volume = music.volume / 100;
+  audio.currentTime = music.start;
+  audio.play().catch((e) => toast(`Can't play: ${e.message}`, { error: true }));
+  audio.onended = stopPreviewTrack;
+  music.preview = { id, audio };
+  // pick it too — previewing usually means choosing
+  music.id = id;
+  if (id !== 'custom') store.set('musicId', id);
+  renderTracks();
+  updateMusicNote();
+}
+
+async function selectedMusic() {
+  if (music.id === 'none') return null;
+  const t = trackById(music.id);
+  if (!t?.file) return null;
+  const actx = audioContext();
+  if (!actx) throw new Error('This browser has no Web Audio support.');
+  let buffer = music.buffers.get(t.file);
+  if (!buffer) {
+    const data = await (await fetch(t.file)).arrayBuffer();
+    buffer = await new Promise((res, rej) => actx.decodeAudioData(data, res, rej));
+    music.buffers.set(t.file, buffer);
+  }
+  return { buffer, volume: music.volume / 100, offset: music.start };
+}
+
+function updateMusicNote() {
+  const t = trackById(music.id);
+  $('#reelMusicNote').textContent = `${music.id === 'none' ? 'No music' : `♪ ${t?.title}`} · change it in the Music tab. Keep this tab in front while recording.`;
+}
+
+$('#musicVol').addEventListener('input', (e) => {
+  music.volume = Number(e.target.value);
+  $('#mvolOut').textContent = `${music.volume}%`;
+  store.set('musicVol', music.volume);
+  if (music.preview) music.preview.audio.volume = music.volume / 100;
 });
+$('#musicStart').addEventListener('input', (e) => {
+  music.start = Number(e.target.value);
+  $('#mstartOut').textContent = `${music.start}s`;
+  if (music.preview) music.preview.audio.currentTime = music.start;
+});
+$('#musicUpload').addEventListener('change', (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  if (f.size > 30e6) return toast('That file is over 30 MB — pick a shorter track.', { error: true });
+  if (music.custom) URL.revokeObjectURL(music.custom.url);
+  music.custom = { name: f.name.replace(/\.[^.]+$/, '').slice(0, 40), url: URL.createObjectURL(f) };
+  music.id = 'custom';
+  renderTracks();
+  updateMusicNote();
+  e.target.value = '';
+});
+// stop previews when leaving the Music tab
+$$('.inspector .tab').forEach((t) => t.addEventListener('click', () => t.dataset.panel !== 'music' && stopPreviewTrack()));
 
 async function postToInstagram(kind) {
+  stopPreviewTrack();
   if (!state.config.features.instagram) return $('#igSetup').showModal();
   const btn = kind === 'video' ? $('#igReel') : $('#igImage');
   if (!card.caption.trim()) return toast('Add a caption first (Copy tab).', { error: true });
@@ -776,5 +931,6 @@ async function boot() {
     : 'Not connected yet — click to see what the server needs.';
   if (!pickMime().includes('mp4') && !f.transcode) $('#dlReel').textContent = '⬇ Record & download WebM';
   renderSources();
+  loadCatalog().then(updateMusicNote);
 }
 boot();

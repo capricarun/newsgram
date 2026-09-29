@@ -24,6 +24,7 @@ npm start                 # http://localhost:3000
 - **AI rewriting** (Anthropic Claude): batch-rewrites the story grid, and the studio's *Rephrase* button rewrites from the full original article, including an Instagram caption with hashtags. Tones: punchy / neutral / explainer. Languages: English, Hindi, Tamil, Telugu, Marathi, Bengali. Without a key the app falls back to a basic trim-and-shorten rewrite.
 - **Studio**: 1080×1080 canvas, 4 layouts (Spotlight, Split, Frame, Bold), 6 accent colours, 4 headline fonts, drag to reposition, scroll/pinch/slider to zoom, “fit whole image” with blurred backdrop, shade control, alternate article images, upload or paste your own. Wrap words in `*stars*` to highlight them.
 - **Downloads**: JPG / PNG, animated MP4 reel (5–15 s, zoom + word-by-word headline reveal), and the source article's video when it exposes a direct file.
+- **Music for reels**: pick from 6 built-in tracks (Breaking Pulse, Headline Rise, Morning Brief, Lo-fi Desk, Tech Wave, Desi Beat) or upload your own; preview, volume and start point; fades in/out and is baked into the MP4 and the Instagram Reel. The built-in tracks are composed from scratch by `scripts/compose-music.py` (pure synthesis — no samples), so they're free to use anywhere.
 - **Instagram**: publishes images or Reels via the official Content Publishing API.
 
 ## Instagram setup

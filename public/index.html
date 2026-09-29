@@ -132,6 +132,7 @@
             <button class="tab is-active" data-panel="copy">Copy</button>
             <button class="tab" data-panel="image">Image</button>
             <button class="tab" data-panel="style">Style</button>
+            <button class="tab" data-panel="music">Music</button>
             <button class="tab" data-panel="export">Publish</button>
           </div>
 
@@ -230,6 +231,28 @@
             </label>
           </div>
 
+          <!-- MUSIC -->
+          <div class="ipanel" data-panel="music">
+            <p class="muted small music-intro">Background music for the reel. Built-in tracks are original to Newsgram — free to use, including on monetised pages.</p>
+            <div class="mtrack-list" id="trackList" role="radiogroup" aria-label="Music track"></div>
+            <div class="field">
+              <span>Your own track</span>
+              <label class="btn btn-ghost btn-s file-btn">⬆ Upload MP3 / M4A / WAV<input type="file" id="musicUpload" accept="audio/*" /></label>
+              <p class="muted small">Only use music you have the rights to — e.g. YouTube Audio Library or Pixabay Music.</p>
+            </div>
+            <label class="field">
+              <span>Music volume <output id="mvolOut">80%</output></span>
+              <input type="range" id="musicVol" min="0" max="100" value="80" />
+            </label>
+            <label class="field">
+              <span>Start music at <output id="mstartOut">0s</output></span>
+              <input type="range" id="musicStart" min="0" max="20" value="0" step="0.5" />
+            </label>
+            <div class="row gap-s wrap">
+              <button class="btn btn-ghost" id="previewReel2">▶ Preview reel with music</button>
+            </div>
+          </div>
+
           <!-- EXPORT -->
           <div class="ipanel" data-panel="export">
             <div class="export-block">
@@ -249,7 +272,7 @@
                 <button class="btn btn-primary" id="dlReel">⬇ Record &amp; download MP4</button>
                 <button class="btn btn-ghost" id="previewReel">▶ Preview</button>
               </div>
-              <p class="muted small">Keep this tab in front while recording.</p>
+              <p class="muted small" id="reelMusicNote">Keep this tab in front while recording.</p>
             </div>
             <div class="export-block" id="srcVideoBlock">
               <h3>Video from the source</h3>

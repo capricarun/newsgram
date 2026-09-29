@@ -209,7 +209,8 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); margin-bottom: 18px; }
 .tab { border: none; background: none; padding: 8px 14px; border-radius: 10px; font-weight: 600; font-size: 13.5px; color: var(--muted); }
 .tab.is-active { background: var(--surface-3); color: var(--text); }
-.tabs-full { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
+.tabs-full { display: grid; grid-template-columns: repeat(5, 1fr); width: 100%; }
+.tabs-full .tab { padding: 8px 4px; }
 
 .story-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .story {
@@ -303,6 +304,31 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .ig-mark { width: 18px; height: 18px; border-radius: 6px; background: linear-gradient(45deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5); }
 .vid-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; font-size: 13px; }
 .vid-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+
+/* ---------- music ---------- */
+.music-intro { margin: 0 0 12px; }
+.mtrack-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.mtrack {
+  display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 8px; border-radius: var(--radius-s); border: 1px solid var(--line); background: var(--surface-2);
+  cursor: pointer; text-align: left; width: 100%;
+}
+.mtrack:hover { border-color: var(--line-2); }
+.mtrack[aria-checked='true'] { border-color: var(--accent); background: linear-gradient(90deg, rgba(198,255,61,0.10), transparent 70%), var(--surface-2); }
+.mtrack .play {
+  width: 36px; height: 36px; border-radius: 50%; border: none; display: grid; place-items: center;
+  background: var(--surface-3); font-size: 13px; color: var(--text);
+}
+.mtrack .play.is-playing { background: var(--accent); color: var(--accent-ink); }
+.mtrack .t-name { font-weight: 700; font-size: 14px; display: block; }
+.mtrack .t-meta { font-size: 12px; color: var(--muted); }
+.mtrack .t-tick { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-size: 11px; color: transparent; }
+.mtrack[aria-checked='true'] .t-tick { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; margin-left: 6px; vertical-align: middle; }
+.eq i { width: 3px; background: var(--accent); animation: eq 0.8s ease-in-out infinite; }
+.eq i:nth-child(2) { animation-delay: -0.3s; }
+.eq i:nth-child(3) { animation-delay: -0.55s; }
+@keyframes eq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
 
 /* ---------- toast & modal ---------- */
 .toast {

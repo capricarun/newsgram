@@ -135,7 +135,7 @@ app.post('/api/media', express.raw({ type: ['image/*', 'video/*'], limit: '150mb
   // Instagram needs H.264 MP4 — transcode anything else (or re-mux MediaRecorder MP4 for safety).
   if (type.startsWith('video/') && ffmpegPath && (ext === 'webm' || req.query.normalize === '1')) {
     const out = name.replace(/\.\w+$/, '-ig.mp4');
-    await transcode(path.join(MEDIA_DIR, name), path.join(MEDIA_DIR, out));
+    await transcode(path.join(MEDIA_DIR, name), path.join(MEDIA_DIR, out), req.query.audio === '1');
     name = out;
   }
   cleanupMedia();
@@ -143,10 +143,12 @@ app.post('/api/media', express.raw({ type: ['image/*', 'video/*'], limit: '150mb
   res.json({ name, path: `/media/${name}`, url: `${base}/media/${name}` });
 }));
 
-function transcode(input, output) {
+function transcode(input, output, hasAudio = false) {
   return new Promise((resolve, reject) => {
-    const args = ['-y', '-i', input, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-shortest',
-      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', '30', '-b:v', '5M', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', output];
+    // Instagram wants H.264 + AAC; add a silent track when the reel has no music.
+    const audioIn = hasAudio ? ['-map', '0:v:0', '-map', '0:a:0'] : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-map', '0:v:0', '-map', '1:a:0', '-shortest'];
+    const args = ['-y', '-i', input, ...audioIn,
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', '30', '-b:v', '5M', '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-movflags', '+faststart', output];
     const p = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
     p.stderr.on('data', (d) => (err = (err + d).slice(-2000)));

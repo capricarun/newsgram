@@ -1,0 +1,50 @@
+[
+  {
+    "id": "breaking-pulse",
+    "title": "Breaking Pulse",
+    "mood": "Urgent \u00b7 news",
+    "bpm": 122,
+    "file": "/music/breaking-pulse.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "headline-rise",
+    "title": "Headline Rise",
+    "mood": "Cinematic \u00b7 big story",
+    "bpm": 90,
+    "file": "/music/headline-rise.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "morning-brief",
+    "title": "Morning Brief",
+    "mood": "Upbeat \u00b7 positive",
+    "bpm": 112,
+    "file": "/music/morning-brief.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "lofi-desk",
+    "title": "Lo-fi Desk",
+    "mood": "Chill \u00b7 explainer",
+    "bpm": 80,
+    "file": "/music/lofi-desk.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "tech-wave",
+    "title": "Tech Wave",
+    "mood": "Tech \u00b7 gadgets",
+    "bpm": 104,
+    "file": "/music/tech-wave.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "desi-beat",
+    "title": "Desi Beat",
+    "mood": "Indian \u00b7 festive",
+    "bpm": 98,
+    "file": "/music/desi-beat.mp3",
+    "duration": 30.0
+  }
+]
