@@ -114,6 +114,7 @@ h3 { font: 700 15px var(--display); margin: 0 0 10px; display: flex; align-items
 .source-grid { display: flex; flex-direction: column; gap: 18px; }
 .source-grid-inner { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 .group-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.group-count { text-transform: none; letter-spacing: 0; color: var(--accent); font-weight: 600; }
 .group-head h3 { margin: 0; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 .source-card {
   position: relative; text-align: left; padding: 14px 14px 14px 16px; min-height: 84px;

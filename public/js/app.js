@@ -149,18 +149,27 @@ function renderSources() {
   $('#sourceGrid').innerHTML = GROUPS.map((g) => {
     const list = sources.filter((s) => (s.group || 'national') === g.id);
     return list.length
-      ? `<div class="source-group"><div class="group-head"><h3>${g.label}</h3><button class="link" data-group="${g.id}">Select group</button></div><div class="source-grid-inner">${list.map(card).join('')}</div></div>`
+      ? `<div class="source-group"><div class="group-head"><h3>${g.label} <span class="group-count" data-count="${g.id}"></span></h3><button class="link" data-group="${g.id}"></button></div><div class="source-grid-inner">${list.map(card).join('')}</div></div>`
       : '';
   }).join('');
+  // Tap any channel to toggle it — pick as many as you like, from either group.
+  $$('#sourceGrid .source-card').forEach((b) =>
+    b.addEventListener('click', () => {
+      const id = b.dataset.id;
+      state.sources.has(id) ? state.sources.delete(id) : state.sources.add(id);
+      syncSourceCards();
+    }),
+  );
+  // "Select all / Clear" shortcut per group.
   $$('#sourceGrid [data-group]').forEach((b) =>
     b.addEventListener('click', () => {
       const ids = sources.filter((s) => (s.group || 'national') === b.dataset.group).map((s) => s.id);
       const allOn = ids.every((id) => state.sources.has(id));
       ids.forEach((id) => (allOn ? state.sources.delete(id) : state.sources.add(id)));
-      $$('#sourceGrid .source-card').forEach((c) => c.setAttribute('aria-pressed', state.sources.has(c.dataset.id)));
-      updatePick();
+      syncSourceCards();
     }),
   );
+  syncSourceCards();
   $('#catChips').innerHTML = categories
     .map((c) => `<button class="chip" role="radio" data-id="${c.id}" aria-checked="${c.id === state.category}">${esc(c.label)}</button>`)
     .join('');
@@ -187,6 +196,18 @@ function renderSources() {
   updatePick();
 }
 
+function syncSourceCards() {
+  $$('#sourceGrid .source-card').forEach((c) => c.setAttribute('aria-pressed', state.sources.has(c.dataset.id)));
+  $$('#sourceGrid [data-group]').forEach((b) => {
+    const ids = state.config.sources.filter((s) => (s.group || 'national') === b.dataset.group).map((s) => s.id);
+    const on = ids.filter((id) => state.sources.has(id)).length;
+    b.textContent = on === ids.length ? 'Clear group' : 'Select all in group';
+    const cnt = $(`[data-count="${b.dataset.group}"]`);
+    if (cnt) cnt.textContent = on ? `· ${on} of ${ids.length} selected` : '';
+  });
+  updatePick();
+}
+
 function updatePick() {
   const n = state.sources.size;
   const cat = state.config.categories.find((c) => c.id === state.category)?.label;
@@ -196,13 +217,11 @@ function updatePick() {
 
 $('#selAll').addEventListener('click', () => {
   state.config.sources.forEach((s) => state.sources.add(s.id));
-  $$('#sourceGrid .source-card').forEach((b) => b.setAttribute('aria-pressed', 'true'));
-  updatePick();
+  syncSourceCards();
 });
 $('#selNone').addEventListener('click', () => {
   state.sources.clear();
-  $$('#sourceGrid .source-card').forEach((b) => b.setAttribute('aria-pressed', 'false'));
-  updatePick();
+  syncSourceCards();
 });
 
 $('#fetchBtn').addEventListener('click', () => loadNews());
