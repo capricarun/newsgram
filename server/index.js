@@ -14,7 +14,7 @@ import { publishToInstagram, igEnabled } from './instagram.js';
 import { assertPublicUrl, fetchWithTimeout } from './util.js';
 import { mockImageSvg } from './mock.js';
 import { grabInfo, startGrab, grabJob, ytdlpPath, ytdlpVersion } from './grab.js';
-import { probe, startEdit, editJob } from './edit.js';
+import { probe, startEdit, editJob, startProject, thumbStrip } from './edit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -230,6 +230,31 @@ app.post('/api/video/edit', wrap(async (req, res) => {
   });
   cleanupMedia();
   res.json({ id: job.id });
+}));
+
+const musicPathFor = (m) => {
+  if (!m || !m.id || m.id === 'none') return null;
+  if (m.id === 'custom') return mediaFile(m.file);
+  return path.join(ROOT, 'public', 'music', `${path.basename(String(m.id)).replace(/[^\w-]/g, '')}.mp3`);
+};
+
+app.post('/api/video/render', wrap(async (req, res) => {
+  if (!ffmpegPath) throw new Error('ffmpeg is not available on this server.');
+  const b = req.body || {};
+  const job = await startProject(ffmpegPath, MEDIA_DIR, {
+    frame: b.frame,
+    clips: b.clips,
+    muteAll: Boolean(b.muteAll),
+    music: b.music ? { ...b.music, path: musicPathFor(b.music) } : null,
+  });
+  cleanupMedia();
+  res.json({ id: job.id });
+}));
+
+app.get('/api/video/thumbs/:name', wrap(async (req, res) => {
+  if (!ffmpegPath) return res.status(404).end();
+  const file = await thumbStrip(ffmpegPath, MEDIA_DIR, path.basename(mediaFile(req.params.name)));
+  res.set('Cache-Control', 'public, max-age=86400').sendFile(file);
 }));
 
 app.get('/api/video/edit/:id', (req, res) => {

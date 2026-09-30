@@ -963,7 +963,7 @@ function openGrab(prefill = '') {
   setTimeout(() => $('#grabUrl').focus(), 50);
 }
 $('#grabNav').addEventListener('click', () => openGrab());
-$('#grabBack').addEventListener('click', () => go(isNaN(Number(grab.from)) ? 1 : Number(grab.from)));
+$('#grabBack').addEventListener('click', () => (grab.from === 'edit' ? openEditorView() : go(isNaN(Number(grab.from)) ? 1 : Number(grab.from))));
 
 $('#grabPaste').addEventListener('click', async () => {
   try {
@@ -1126,193 +1126,668 @@ function checkGrabParam() {
 }
 
 
-/* ---------------- video editor: crop / trim / music ---------------- */
-const ve = {
-  name: null, title: 'video', info: null,
-  crop: { top: 0, bottom: 0, left: 0, right: 0 }, aspect: 'free',
-  start: 0, end: 0,
-  music: store.get('veMusic', 'none'), musicFile: null, musicUrl: null, musicName: '',
-  musicVol: 80, origVol: 100, job: null, timer: null, audio: null, playing: false,
+/* ---------------- video editor: multi-clip timeline ---------------- */
+const FRAME_SIZES = { '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350], '16:9': [1920, 1080] };
+const ed = {
+  clips: [], // { id, name, label, info:{width,height,duration,hasAudio}, in, out, crop:{top,bottom,left,right}, mode, zoom, panX, panY, volume }
+  sel: null,
+  frame: store.get('edFrame', '9:16'),
+  t: 0,
+  playing: false,
+  last: 0,
+  pps: 40,
+  tlZoom: 1,
+  videos: new Map(), // media name -> <video>
+  activeEl: null,
+  music: { id: store.get('edMusicId', 'none'), file: null, url: null, name: '', volume: 80, loop: true, offset: 0, in: 0, dur: 30 },
+  audio: null,
+  muteAll: false,
+  job: null,
+  timer: null,
+  raf: 0,
+  uid: 0,
 };
-const fmtT = (t) => fmtDur(Math.max(0, t)) || '0:00';
-
-async function openEditor(name, title) {
-  ve.name = name;
-  ve.title = title || 'video';
-  ve.job = null;
-  stopVePreview();
-  $('#veEditor').hidden = false;
-  $('#veDone').hidden = true;
-  $('#veProgress').hidden = true;
-  $('#veRender').disabled = true;
-  $('#veCaption').value = $('#grabCaption').value || `${ve.title}\n\n#news #viral #trending`;
-  try {
-    ve.info = await api('/api/video/probe', { method: 'POST', body: JSON.stringify({ name }) });
-  } catch (e) {
-    $('#veEditor').hidden = true;
-    return toast(e.message, { error: true, ms: 8000 });
-  }
-  const { width, height, duration, hasAudio } = ve.info;
-  $('#veFrame').style.aspectRatio = `${width} / ${height}`;
-  // Keep tall (phone) videos from overflowing: cap the frame's width by the height limit.
-  $('#veFrame').style.width = `min(100%, calc(62vh * ${width / height}))`;
-  $('#veVideo').src = `/media/${encodeURIComponent(name)}`;
-  ve.start = 0;
-  ve.end = duration || 0;
-  for (const id of ['#veStart', '#veEnd']) {
-    $(id).max = (duration || 0).toFixed(1);
-  }
-  $('#veStart').value = 0;
-  $('#veEnd').value = (duration || 0).toFixed(1);
-  $('#veNoAudio').hidden = hasAudio;
-  $('#veOvol').disabled = !hasAudio;
-  setAspect('free', true);
-  renderVeMusic();
-  syncTrim();
-  $('#veRender').disabled = false;
-  $('#veEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function syncCrop() {
-  const c = ve.crop;
-  const el = $('#veCrop');
-  el.style.left = `${c.left}%`;
-  el.style.top = `${c.top}%`;
-  el.style.width = `${100 - c.left - c.right}%`;
-  el.style.height = `${100 - c.top - c.bottom}%`;
-  for (const k of ['top', 'bottom', 'left', 'right']) {
-    const cap = k === 'top' || k === 'bottom' ? 'Top Bottom' : 'Left Right';
-    const input = $(`#ve${k[0].toUpperCase() + k.slice(1)}`);
-    input.max = Math.max(45, Math.ceil(c[k]));
-    input.value = c[k];
-    $(`#ve${k[0].toUpperCase() + k.slice(1)}Out`).textContent = `${Math.round(c[k])}%`;
-  }
-  if (ve.info) {
-    const w = Math.round(ve.info.width * (1 - (c.left + c.right) / 100));
-    const h = Math.round(ve.info.height * (1 - (c.top + c.bottom) / 100));
-    $('#veDims').textContent = `${w} × ${h}`;
-  }
-}
-
-function setAspect(a, reset = false) {
-  ve.aspect = a;
-  $$('#veAspect .chip').forEach((b) => b.setAttribute('aria-checked', b.dataset.a === a));
-  if (!ve.info) return;
-  if (a === 'free') {
-    if (reset) ve.crop = { top: 0, bottom: 0, left: 0, right: 0 };
-    return syncCrop();
-  }
-  const [rw, rh] = a.split(':').map(Number);
-  const R = rw / rh;
-  const S = ve.info.width / ve.info.height;
-  if (S > R) {
-    const side = ((1 - R / S) / 2) * 100;
-    ve.crop = { top: 0, bottom: 0, left: side, right: side };
-  } else {
-    const side = ((1 - S / R) / 2) * 100;
-    ve.crop = { top: side, bottom: side, left: 0, right: 0 };
-  }
-  syncCrop();
-}
-$$('#veAspect .chip').forEach((b) => b.addEventListener('click', () => setAspect(b.dataset.a, true)));
-$('#veReset').addEventListener('click', () => setAspect('free', true));
-
-for (const k of ['top', 'bottom', 'left', 'right']) {
-  const cap = k[0].toUpperCase() + k.slice(1);
-  $(`#ve${cap}`).addEventListener('input', (e) => {
-    const other = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[k];
-    ve.crop[k] = Math.min(Number(e.target.value), 90 - ve.crop[other]);
-    if (ve.aspect !== 'free') {
-      ve.aspect = 'free';
-      $$('#veAspect .chip').forEach((b) => b.setAttribute('aria-checked', b.dataset.a === 'free'));
-    }
-    syncCrop();
+const edCanvas = $('#edCanvas');
+const edCtx = edCanvas.getContext('2d');
+const fmtTs = (t) => {
+  t = Math.max(0, t);
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+};
+const clipLen = (c) => c.out - c.in;
+const edTotal = () => ed.clips.reduce((s, c) => s + clipLen(c), 0);
+function clipStarts() {
+  let acc = 0;
+  return ed.clips.map((c) => {
+    const s = acc;
+    acc += clipLen(c);
+    return s;
   });
 }
+function clipAt(t) {
+  const starts = clipStarts();
+  for (let i = 0; i < ed.clips.length; i++) {
+    if (t < starts[i] + clipLen(ed.clips[i]) - 1e-3 || i === ed.clips.length - 1) return { i, clip: ed.clips[i], start: starts[i], local: ed.clips[i].in + Math.max(0, t - starts[i]) };
+  }
+  return null;
+}
+const selClip = () => ed.clips.find((c) => c.id === ed.sel) || null;
 
-// Drag the crop box to reposition it (keeps its size).
+/* ---------- open / add clips ---------- */
+function openEditorView() {
+  const active = $('.view.is-active')?.id?.replace('view-', '');
+  if (active && active !== 'edit') ed.from = active;
+  go('edit');
+  startEdLoop();
+  renderEd();
+}
+$('#editNav').addEventListener('click', openEditorView);
+$('#grabOpenEditor').addEventListener('click', openEditorView);
+$('#edBack').addEventListener('click', () => {
+  edPause();
+  const f = ed.from;
+  f === 'grab' ? go('grab') : go(isNaN(Number(f)) ? 1 : Number(f));
+});
+$('#edFromLink').addEventListener('click', () => {
+  edPause();
+  openGrab();
+});
+
+function mediaEl(name) {
+  let v = ed.videos.get(name);
+  if (!v) {
+    v = document.createElement('video');
+    v.src = `/media/${encodeURIComponent(name)}`;
+    v.preload = 'auto';
+    v.playsInline = true;
+    v.crossOrigin = 'anonymous';
+    $('#edMedia').appendChild(v);
+    ed.videos.set(name, v);
+  }
+  return v;
+}
+
+async function addClip(name, label) {
+  const info = await api('/api/video/probe', { method: 'POST', body: JSON.stringify({ name }) });
+  const clip = {
+    id: `c${++ed.uid}`, name, label: (label || name).slice(0, 60), info,
+    in: 0, out: info.duration || 1, crop: { top: 0, bottom: 0, left: 0, right: 0 },
+    mode: 'fill', zoom: 1, panX: 0, panY: 0, volume: 1,
+  };
+  ed.clips.push(clip);
+  mediaEl(name);
+  ed.sel = clip.id;
+  renderEd();
+  return clip;
+}
+
+$('#edAdd').addEventListener('change', async (e) => {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  if (!files.length) return;
+  const label = $('#edAddLabel');
+  label.classList.add('is-loading');
+  try {
+    for (const [k, f] of files.entries()) {
+      if (f.size > 300e6) {
+        toast(`${f.name} is over 300 MB — skipped.`, { error: true });
+        continue;
+      }
+      toast(`Uploading ${k + 1} of ${files.length}: ${f.name}`, { ms: 60000 });
+      const up = await uploadMedia(new Blob([f], { type: f.type || 'video/mp4' }));
+      await addClip(up.name, f.name.replace(/\.[^.]+$/, ''));
+    }
+    toast('Clips added ✓');
+  } catch (err) {
+    toast(err.message, { error: true, ms: 8000 });
+  } finally {
+    label.classList.remove('is-loading');
+  }
+});
+
+// From the grabber: add the downloaded video to the timeline.
+$('#grabEdit').addEventListener('click', async () => {
+  if (!grab.job?.file) return;
+  if (/\.mp3$/i.test(grab.job.file)) return toast('That download is audio only — pick a video quality to edit.', { error: true });
+  const btn = $('#grabEdit');
+  busy(btn, true);
+  try {
+    await addClip(grab.job.file, grab.info?.title);
+    $('#edCaption').value = $('#grabCaption').value;
+    openEditorView();
+    toast(ed.clips.length > 1 ? `Added as clip ${ed.clips.length} ✓` : 'Added to the editor ✓');
+  } catch (err) {
+    toast(err.message, { error: true });
+  } finally {
+    busy(btn, false);
+  }
+});
+
+/* ---------- frame ---------- */
+function frameSize() {
+  if (FRAME_SIZES[ed.frame]) return FRAME_SIZES[ed.frame];
+  const c = ed.clips[0];
+  if (!c) return [1080, 1920];
+  const w = c.info.width * (1 - (c.crop.left + c.crop.right) / 100);
+  const h = c.info.height * (1 - (c.crop.top + c.crop.bottom) / 100);
+  return [w, h];
+}
+function sizeCanvas() {
+  const [W, H] = frameSize();
+  const k = 720 / Math.max(W, H);
+  const cw = Math.round(W * k);
+  const ch = Math.round(H * k);
+  if (edCanvas.width !== cw || edCanvas.height !== ch) {
+    edCanvas.width = cw;
+    edCanvas.height = ch;
+  }
+}
+$$('#edFrame .chip').forEach((b) =>
+  b.addEventListener('click', () => {
+    ed.frame = b.dataset.f;
+    store.set('edFrame', ed.frame);
+    renderEd();
+  }),
+);
+
+/* ---------- drawing (mirrors the server's ffmpeg maths) ---------- */
+function drawClipFrame(el, c) {
+  const CW = edCanvas.width;
+  const CH = edCanvas.height;
+  edCtx.fillStyle = '#000';
+  edCtx.fillRect(0, 0, CW, CH);
+  if (!el || el.readyState < 2) return;
+  const W0 = el.videoWidth || c.info.width;
+  const H0 = el.videoHeight || c.info.height;
+  const sx = (W0 * c.crop.left) / 100;
+  const sy = (H0 * c.crop.top) / 100;
+  const sw = W0 * (1 - (c.crop.left + c.crop.right) / 100);
+  const sh = H0 * (1 - (c.crop.top + c.crop.bottom) / 100);
+  if (sw < 2 || sh < 2) return;
+  if (c.mode === 'fit') {
+    const cover = Math.max(CW / sw, CH / sh);
+    edCtx.save();
+    edCtx.filter = 'blur(18px) brightness(0.78)';
+    edCtx.drawImage(el, sx, sy, sw, sh, (CW - sw * cover) / 2, (CH - sh * cover) / 2, sw * cover, sh * cover);
+    edCtx.restore();
+    const fit = Math.min(CW / sw, CH / sh);
+    edCtx.drawImage(el, sx, sy, sw, sh, (CW - sw * fit) / 2, (CH - sh * fit) / 2, sw * fit, sh * fit);
+  } else {
+    const s = Math.max(CW / sw, CH / sh) * c.zoom;
+    const dw = sw * s;
+    const dh = sh * s;
+    const x = -(dw - CW) * (0.5 + c.panX);
+    const y = -(dh - CH) * (0.5 + c.panY);
+    edCtx.drawImage(el, sx, sy, sw, sh, x, y, dw, dh);
+  }
+}
+
+/* ---------- playback engine ---------- */
+function musicUrl() {
+  if (ed.music.id === 'none') return null;
+  if (ed.music.id === 'custom') return ed.music.url;
+  return music.catalog.find((t) => t.id === ed.music.id)?.file || null;
+}
+function syncMusic() {
+  const url = musicUrl();
+  if (!url) {
+    if (ed.audio) ed.audio.pause();
+    return;
+  }
+  if (!ed.audio || ed.audio.dataset.src !== url) {
+    ed.audio?.pause();
+    ed.audio = new Audio(url);
+    ed.audio.dataset.src = url;
+    ed.audio.preload = 'auto';
+    ed.audio.addEventListener('loadedmetadata', () => {
+      ed.music.dur = ed.audio.duration || ed.music.dur;
+      $('#edMin').max = Math.max(0, Math.floor(ed.music.dur - 1));
+      renderTimeline();
+    });
+  }
+  const a = ed.audio;
+  a.volume = Math.min(1, ed.music.volume / 100);
+  if (!ed.playing) return a.paused || a.pause();
+  const rel = ed.t - ed.music.offset;
+  const first = Math.max(0.1, ed.music.dur - ed.music.in);
+  let pos = null;
+  if (rel >= 0) {
+    if (rel < first) pos = ed.music.in + rel;
+    else if (ed.music.loop) pos = (rel - first) % ed.music.dur;
+  }
+  if (pos == null) return a.paused || a.pause();
+  if (a.paused) {
+    a.currentTime = pos;
+    a.play().catch(() => {});
+  } else if (Math.abs(a.currentTime - pos) > 0.35) a.currentTime = pos;
+}
+
+function edTick(now) {
+  ed.raf = requestAnimationFrame(edTick);
+  if (!$('#view-edit').classList.contains('is-active')) return;
+  const total = edTotal();
+  if (ed.playing) {
+    ed.t += (now - (ed.last || now)) / 1000;
+    if (ed.t >= total) {
+      ed.t = total;
+      edPause();
+    }
+  }
+  ed.last = now;
+  const at = clipAt(Math.min(ed.t, Math.max(0, total - 0.001)));
+  if (at) {
+    const el = mediaEl(at.clip.name);
+    if (ed.activeEl && ed.activeEl !== el) ed.activeEl.pause();
+    ed.activeEl = el;
+    const vol = ed.muteAll ? 0 : Math.min(1, at.clip.volume);
+    el.volume = vol;
+    el.muted = vol === 0;
+    if (ed.playing) {
+      if (el.paused) {
+        el.currentTime = at.local;
+        el.play().catch(() => {});
+      } else if (Math.abs(el.currentTime - at.local) > 0.3) el.currentTime = at.local;
+    } else {
+      if (!el.paused) el.pause();
+      if (!el.seeking && Math.abs(el.currentTime - at.local) > 0.04) el.currentTime = at.local;
+    }
+    drawClipFrame(el, at.clip);
+  } else {
+    edCtx.fillStyle = '#000';
+    edCtx.fillRect(0, 0, edCanvas.width, edCanvas.height);
+  }
+  syncMusic();
+  $('#edTime').textContent = `${fmtTs(ed.t)} / ${fmtTs(total)}`;
+  $('#tlPlayhead').style.left = `${ed.t * ed.pps}px`;
+  if (ed.playing) keepPlayheadVisible();
+}
+function startEdLoop() {
+  if (!ed.raf) ed.raf = requestAnimationFrame(edTick);
+}
+function edPlay() {
+  if (!ed.clips.length) return;
+  if (ed.t >= edTotal() - 0.05) ed.t = 0;
+  ed.playing = true;
+  ed.last = performance.now();
+  $('#edPlay').textContent = '❚❚';
+  $('#edPlay').setAttribute('aria-label', 'Pause');
+}
+function edPause() {
+  ed.playing = false;
+  ed.activeEl?.pause();
+  ed.audio?.pause();
+  $('#edPlay').textContent = '▶';
+  $('#edPlay').setAttribute('aria-label', 'Play');
+}
+function edSeek(t) {
+  ed.t = Math.max(0, Math.min(edTotal(), t));
+}
+$('#edPlay').addEventListener('click', () => (ed.playing ? edPause() : edPlay()));
+$('#edToStart').addEventListener('click', () => edSeek(0));
+function keepPlayheadVisible() {
+  const sc = $('#tlScroll');
+  const x = ed.t * ed.pps;
+  if (x < sc.scrollLeft + 20 || x > sc.scrollLeft + sc.clientWidth - 40) sc.scrollLeft = Math.max(0, x - sc.clientWidth * 0.3);
+}
+
+/* ---------- timeline ---------- */
+function renderTimeline() {
+  const sc = $('#tlScroll');
+  const total = edTotal();
+  const avail = Math.max(200, sc.clientWidth - 40);
+  ed.pps = Math.max(8, (avail / Math.max(total, 5)) * ed.tlZoom);
+  const width = Math.max(sc.clientWidth, total * ed.pps + 60);
+  $('#tlInner').style.width = `${width}px`;
+
+  // ruler
+  const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
+  const step = steps.find((s) => s * ed.pps >= 64) || 300;
+  let html = '';
+  for (let t = 0; t * ed.pps < width; t += step) {
+    html += `<span class="tl-tick" style="left:${t * ed.pps}px">${fmtDur(t) || '0:00'}</span>`;
+    const half = t + step / 2;
+    if (step >= 1) html += `<span class="tl-tick minor" style="left:${half * ed.pps}px"></span>`;
+  }
+  $('#tlRuler').innerHTML = html;
+
+  // video clips
+  const starts = clipStarts();
+  $('#tlVideo').innerHTML = ed.clips
+    .map((c, i) => {
+      const w = clipLen(c) * ed.pps;
+      const stripW = (c.info.duration || clipLen(c)) * ed.pps;
+      return `<div class="tl-clip ${c.id === ed.sel ? 'sel' : ''}" data-id="${c.id}" style="left:${starts[i] * ed.pps}px;width:${w}px;background-image:url('/api/video/thumbs/${encodeURIComponent(c.name)}');background-size:${stripW}px 100%;background-position:${-c.in * ed.pps}px 0">
+        <span class="tl-h l" data-h="l"></span><span class="lbl">${i + 1} · ${esc(c.label)} · ${clipLen(c).toFixed(1)}s</span><span class="tl-h r" data-h="r"></span>
+      </div>`;
+    })
+    .join('');
+
+  // music bar
+  const m = ed.music;
+  if (m.id !== 'none' && total > 0) {
+    const first = Math.max(0.1, m.dur - m.in);
+    const len = Math.min(total - m.offset, m.loop ? Infinity : first);
+    const name = m.id === 'custom' ? m.name : music.catalog.find((t) => t.id === m.id)?.title || 'Music';
+    let marks = '';
+    if (m.loop) for (let x = first; x < len; x += m.dur) marks += `<span class="loopmark" style="left:${x * ed.pps}px"></span>`;
+    $('#tlMusic').innerHTML = `<div class="tl-music" id="tlMusicBar" style="left:${m.offset * ed.pps}px;width:${Math.max(4, len * ed.pps)}px">♪ ${esc(name)}${m.loop ? ' · repeats' : ''}${marks}</div>`;
+  } else {
+    $('#tlMusic').innerHTML = `<span class="muted small" style="position:absolute;left:10px;top:13px">${total ? 'No music — pick a track in the Music tab' : ''}</span>`;
+  }
+  $('#tlPlayhead').style.left = `${ed.t * ed.pps}px`;
+}
+
+// Clip interactions: trim handles, drag to reorder, click to select/seek.
+$('#tlVideo').addEventListener('pointerdown', (e) => {
+  const block = e.target.closest('.tl-clip');
+  if (!block) return;
+  e.preventDefault();
+  edPause();
+  const clip = ed.clips.find((c) => c.id === block.dataset.id);
+  const handle = e.target.dataset.h;
+  const x0 = e.clientX;
+  const start = { in: clip.in, out: clip.out };
+  const idx0 = ed.clips.indexOf(clip);
+  let moved = false;
+  ed.sel = clip.id;
+  const onMove = (ev) => {
+    const dx = ev.clientX - x0;
+    if (!moved && Math.abs(dx) < 5) return;
+    moved = true;
+    const d = dx / ed.pps;
+    if (handle === 'l') {
+      clip.in = Math.max(0, Math.min(start.out - 0.3, start.in + d));
+      edSeek(clipStarts()[ed.clips.indexOf(clip)]);
+      renderTimeline();
+    } else if (handle === 'r') {
+      clip.out = Math.min(clip.info.duration || start.out, Math.max(start.in + 0.3, start.out + d));
+      edSeek(clipStarts()[ed.clips.indexOf(clip)] + clipLen(clip) - 0.05);
+      renderTimeline();
+    } else {
+      const el = $(`.tl-clip[data-id="${clip.id}"]`);
+      el.classList.add('drag');
+      el.style.transform = `translateX(${dx}px)`;
+    }
+  };
+  const onUp = (ev) => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    if (!moved) {
+      const r = $('#tlInner').getBoundingClientRect();
+      edSeek((ev.clientX - r.left) / ed.pps);
+    } else if (!handle) {
+      // drop position → new index
+      const r = $('#tlInner').getBoundingClientRect();
+      const tDrop = (ev.clientX - r.left) / ed.pps;
+      const others = ed.clips.filter((c) => c !== clip);
+      let acc = 0;
+      let idx = others.length;
+      for (let i = 0; i < others.length; i++) {
+        if (tDrop < acc + clipLen(others[i]) / 2) {
+          idx = i;
+          break;
+        }
+        acc += clipLen(others[i]);
+      }
+      others.splice(idx, 0, clip);
+      ed.clips = others;
+      if (idx !== idx0) toast(`Moved to position ${idx + 1}`);
+      edSeek(clipStarts()[ed.clips.indexOf(clip)]);
+    }
+    renderEd();
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+  renderClipPanel();
+  highlightSel();
+});
+
+// Music bar: drag to change where the music starts in the video.
+$('#tlMusic').addEventListener('pointerdown', (e) => {
+  const bar = e.target.closest('.tl-music');
+  if (!bar) return;
+  e.preventDefault();
+  edPause();
+  bar.classList.add('drag');
+  const x0 = e.clientX;
+  const o0 = ed.music.offset;
+  const onMove = (ev) => {
+    ed.music.offset = Math.max(0, Math.min(Math.max(0, edTotal() - 0.5), o0 + (ev.clientX - x0) / ed.pps));
+    bar.style.left = `${ed.music.offset * ed.pps}px`;
+    syncMusicPanel();
+  };
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    renderTimeline();
+    showEdTab('music');
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+});
+
+// Ruler click + playhead handle drag = scrub.
+function scrubFrom(e) {
+  e.preventDefault();
+  edPause();
+  const r = $('#tlInner').getBoundingClientRect();
+  const move = (ev) => edSeek((ev.clientX - r.left) / ed.pps);
+  move(e);
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+$('#tlRuler').addEventListener('pointerdown', scrubFrom);
+$('#tlHandle').addEventListener('pointerdown', scrubFrom);
+$('#edTlZoom').addEventListener('input', (e) => {
+  ed.tlZoom = Number(e.target.value);
+  renderTimeline();
+  keepPlayheadVisible();
+});
+window.addEventListener('resize', () => $('#view-edit').classList.contains('is-active') && renderTimeline());
+
+/* ---------- edit actions ---------- */
+function splitAtPlayhead() {
+  const at = clipAt(ed.t);
+  if (!at) return;
+  const c = at.clip;
+  if (at.local - c.in < 0.2 || c.out - at.local < 0.2) return toast('Move the playhead inside a clip to split it.');
+  const b = { ...c, id: `c${++ed.uid}`, crop: { ...c.crop }, in: at.local };
+  c.out = at.local;
+  ed.clips.splice(at.i + 1, 0, b);
+  ed.sel = b.id;
+  renderEd();
+}
+function deleteSelected() {
+  const c = selClip();
+  if (!c) return toast('Select a clip first.');
+  ed.clips = ed.clips.filter((x) => x !== c);
+  ed.sel = ed.clips[0]?.id || null;
+  edSeek(Math.min(ed.t, edTotal()));
+  renderEd();
+}
+$('#edSplit').addEventListener('click', splitAtPlayhead);
+$('#edDel').addEventListener('click', deleteSelected);
+$('#edDup').addEventListener('click', () => {
+  const c = selClip();
+  if (!c) return toast('Select a clip first.');
+  const i = ed.clips.indexOf(c);
+  const d = { ...c, id: `c${++ed.uid}`, crop: { ...c.crop } };
+  ed.clips.splice(i + 1, 0, d);
+  ed.sel = d.id;
+  renderEd();
+});
+document.addEventListener('keydown', (e) => {
+  if (!$('#view-edit').classList.contains('is-active')) return;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && document.activeElement.type !== 'range') return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    ed.playing ? edPause() : edPlay();
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (document.activeElement?.type === 'range') return;
+    e.preventDefault();
+    edPause();
+    edSeek(ed.t + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 1 : 1 / 30));
+  } else if (e.key === 's' || e.key === 'S') splitAtPlayhead();
+  else if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    deleteSelected();
+  }
+});
+
+/* ---------- pan the selected clip by dragging the preview ---------- */
 {
   let drag = null;
-  const box = $('#veCrop');
-  box.addEventListener('pointerdown', (e) => {
-    box.setPointerCapture(e.pointerId);
-    drag = { x: e.clientX, y: e.clientY, crop: { ...ve.crop } };
+  edCanvas.addEventListener('pointerdown', (e) => {
+    const at = clipAt(ed.t);
+    if (!at || at.clip.mode !== 'fill') return;
+    ed.sel = at.clip.id;
+    renderClipPanel();
+    highlightSel();
+    edCanvas.setPointerCapture(e.pointerId);
+    edCanvas.classList.add('dragging');
+    drag = { x: e.clientX, y: e.clientY, c: at.clip, px: at.clip.panX, py: at.clip.panY };
   });
-  box.addEventListener('pointermove', (e) => {
+  edCanvas.addEventListener('pointermove', (e) => {
     if (!drag) return;
-    const r = $('#veFrame').getBoundingClientRect();
-    const dx = ((e.clientX - drag.x) / r.width) * 100;
-    const dy = ((e.clientY - drag.y) / r.height) * 100;
-    const h = drag.crop.left + drag.crop.right;
-    const v = drag.crop.top + drag.crop.bottom;
-    ve.crop.left = Math.max(0, Math.min(h, drag.crop.left + dx));
-    ve.crop.right = h - ve.crop.left;
-    ve.crop.top = Math.max(0, Math.min(v, drag.crop.top + dy));
-    ve.crop.bottom = v - ve.crop.top;
-    syncCrop();
+    const c = drag.c;
+    const rect = edCanvas.getBoundingClientRect();
+    const k = edCanvas.width / rect.width;
+    const sw = c.info.width * (1 - (c.crop.left + c.crop.right) / 100);
+    const sh = c.info.height * (1 - (c.crop.top + c.crop.bottom) / 100);
+    const s = Math.max(edCanvas.width / sw, edCanvas.height / sh) * c.zoom;
+    const spareX = sw * s - edCanvas.width;
+    const spareY = sh * s - edCanvas.height;
+    if (spareX > 1) c.panX = Math.max(-0.5, Math.min(0.5, drag.px - ((e.clientX - drag.x) * k) / spareX));
+    if (spareY > 1) c.panY = Math.max(-0.5, Math.min(0.5, drag.py - ((e.clientY - drag.y) * k) / spareY));
   });
-  const end = () => (drag = null);
-  box.addEventListener('pointerup', end);
-  box.addEventListener('pointercancel', end);
+  const end = () => {
+    drag = null;
+    edCanvas.classList.remove('dragging');
+  };
+  edCanvas.addEventListener('pointerup', end);
+  edCanvas.addEventListener('pointercancel', end);
 }
 
-function syncTrim() {
-  ve.start = Number($('#veStart').value);
-  ve.end = Number($('#veEnd').value);
-  if (ve.end - ve.start < 0.5) {
-    ve.end = Math.min(ve.info?.duration || ve.start + 0.5, ve.start + 0.5);
-    $('#veEnd').value = ve.end;
+/* ---------- side panels ---------- */
+function showEdTab(name) {
+  $$('.ed-tabs .tab').forEach((t) => t.classList.toggle('is-active', t.dataset.ep === name));
+  $$('.ed-side .ipanel').forEach((p) => p.classList.toggle('is-active', p.dataset.ep === name));
+  if (name === 'export') renderSummary();
+}
+$$('.ed-tabs .tab').forEach((t) => t.addEventListener('click', () => showEdTab(t.dataset.ep)));
+
+function highlightSel() {
+  $$('#tlVideo .tl-clip').forEach((b) => b.classList.toggle('sel', b.dataset.id === ed.sel));
+}
+
+const EDGE = { top: 'edCt', bottom: 'edCb', left: 'edCl', right: 'edCr' };
+function renderClipPanel() {
+  const c = selClip();
+  $('#edNoClip').hidden = Boolean(c);
+  $('#edClipPanel').hidden = !c;
+  if (!c) return;
+  $('#edClipName').textContent = c.label;
+  $('#edClipTimes').textContent = `${fmtTs(c.in)} → ${fmtTs(c.out)} · ${clipLen(c).toFixed(1)}s`;
+  $$('#edMode .chip').forEach((b) => b.setAttribute('aria-checked', b.dataset.m === c.mode));
+  $('#edZoomField').hidden = c.mode !== 'fill';
+  $('#edPanHint').hidden = c.mode !== 'fill';
+  $('#edZoom').value = Math.round(c.zoom * 100);
+  $('#edZoomOut').textContent = `${Math.round(c.zoom * 100)}%`;
+  for (const [k, id] of Object.entries(EDGE)) {
+    $(`#${id}`).value = c.crop[k];
+    $(`#${id}Out`).textContent = `${Math.round(c.crop[k])}%`;
   }
-  $('#veStartOut').textContent = fmtT(ve.start);
-  $('#veEndOut').textContent = fmtT(ve.end);
-  $('#veLen').textContent = `Length ${(ve.end - ve.start).toFixed(1)}s`;
+  $('#edCvol').value = Math.round(c.volume * 100);
+  $('#edCvol').disabled = !c.info.hasAudio;
+  $('#edCvolOut').textContent = c.info.hasAudio ? `${Math.round(c.volume * 100)}%` : 'no sound';
 }
-$('#veStart').addEventListener('input', () => {
-  syncTrim();
-  $('#veVideo').currentTime = ve.start;
+$$('#edMode .chip').forEach((b) =>
+  b.addEventListener('click', () => {
+    const c = selClip();
+    if (!c) return;
+    c.mode = b.dataset.m;
+    renderClipPanel();
+  }),
+);
+$('#edZoom').addEventListener('input', (e) => {
+  const c = selClip();
+  if (!c) return;
+  c.zoom = Number(e.target.value) / 100;
+  $('#edZoomOut').textContent = `${e.target.value}%`;
 });
-$('#veEnd').addEventListener('input', () => {
-  syncTrim();
-  $('#veVideo').currentTime = ve.end;
+for (const [k, id] of Object.entries(EDGE)) {
+  $(`#${id}`).addEventListener('input', (e) => {
+    const c = selClip();
+    if (!c) return;
+    const other = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[k];
+    c.crop[k] = Math.min(Number(e.target.value), 90 - c.crop[other]);
+    $(`#${id}Out`).textContent = `${Math.round(c.crop[k])}%`;
+    if (ed.frame === 'original' && c === ed.clips[0]) sizeCanvas();
+  });
+}
+$('#edCvol').addEventListener('input', (e) => {
+  const c = selClip();
+  if (!c) return;
+  c.volume = Number(e.target.value) / 100;
+  $('#edCvolOut').textContent = `${e.target.value}%`;
 });
-$('#veSetStart').addEventListener('click', () => {
-  $('#veStart').value = $('#veVideo').currentTime.toFixed(1);
-  syncTrim();
+$('#edResetClip').addEventListener('click', () => {
+  const c = selClip();
+  if (!c) return;
+  Object.assign(c, { crop: { top: 0, bottom: 0, left: 0, right: 0 }, mode: 'fill', zoom: 1, panX: 0, panY: 0 });
+  renderClipPanel();
+  sizeCanvas();
 });
-$('#veSetEnd').addEventListener('click', () => {
-  $('#veEnd').value = $('#veVideo').currentTime.toFixed(1);
-  syncTrim();
+$('#edApplyAll').addEventListener('click', () => {
+  const c = selClip();
+  if (!c) return;
+  for (const x of ed.clips) Object.assign(x, { crop: { ...c.crop }, mode: c.mode, zoom: c.zoom, panX: c.panX, panY: c.panY });
+  toast(`Framing applied to ${ed.clips.length} clip${ed.clips.length > 1 ? 's' : ''} ✓`);
 });
-$('#veVideo').addEventListener('timeupdate', () => {
-  const v = $('#veVideo');
-  $('#veTime').textContent = `${fmtT(v.currentTime)} / ${fmtT(ve.info?.duration || 0)}`;
-  if (ve.playing && v.currentTime >= ve.end) stopVePreview();
-});
-$('#veVideo').addEventListener('click', () => (ve.playing ? stopVePreview() : startVePreview()));
 
-/* music */
-function veTrackUrl() {
-  if (ve.music === 'none') return null;
-  if (ve.music === 'custom') return ve.musicUrl;
-  return music.catalog.find((t) => t.id === ve.music)?.file || null;
-}
-function renderVeMusic() {
+/* music panel */
+function renderEdMusicSelect() {
   const groups = {};
   for (const t of music.catalog) (groups[t.group || 'Background beds'] ||= []).push(t);
-  $('#veMusic').innerHTML =
+  $('#edMusic').innerHTML =
     `<option value="none">No music</option>` +
     Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${t.id}">${esc(t.title)} — ${esc(t.mood)}</option>`).join('')}</optgroup>`).join('') +
-    (ve.musicFile ? `<option value="custom">Your track: ${esc(ve.musicName)}</option>` : '');
-  if (ve.music === 'custom' && !ve.musicFile) ve.music = 'none';
-  if (ve.music !== 'none' && ve.music !== 'custom' && !music.catalog.some((t) => t.id === ve.music)) ve.music = 'none';
-  $('#veMusic').value = ve.music;
+    (ed.music.file ? `<option value="custom">Your track: ${esc(ed.music.name)}</option>` : '');
+  if (ed.music.id !== 'none' && ed.music.id !== 'custom' && !music.catalog.some((t) => t.id === ed.music.id)) ed.music.id = 'none';
+  $('#edMusic').value = ed.music.id;
 }
-$('#veMusic').addEventListener('change', (e) => {
-  ve.music = e.target.value;
-  if (ve.music !== 'custom') store.set('veMusic', ve.music);
-  if (ve.audio && !ve.playing) stopVeMusicPreview();
+function syncMusicPanel() {
+  const m = ed.music;
+  $('#edLoop').checked = m.loop;
+  $('#edMvol').value = m.volume;
+  $('#edMvolOut').textContent = `${m.volume}%`;
+  $('#edMin').value = m.in;
+  $('#edMinOut').textContent = fmtDur(m.in) || '0:00';
+  $('#edMoff').max = Math.max(0.1, edTotal() - 0.5).toFixed(1);
+  $('#edMoff').value = m.offset;
+  $('#edMoffOut').textContent = fmtTs(m.offset);
+  $('#edMuteAll').checked = ed.muteAll;
+}
+$('#edMusic').addEventListener('change', (e) => {
+  ed.music.id = e.target.value;
+  if (ed.music.id !== 'custom') {
+    store.set('edMusicId', ed.music.id);
+    const t = music.catalog.find((x) => x.id === ed.music.id);
+    ed.music.dur = t?.duration || 30;
+  }
+  ed.music.in = 0;
+  $('#edMin').max = Math.max(0, Math.floor(ed.music.dur - 1));
+  syncMusicPanel();
+  renderTimeline();
 });
-$('#veMusicUpload').addEventListener('change', async (e) => {
+$('#edMusicUpload').addEventListener('change', async (e) => {
   const f = e.target.files?.[0];
   e.target.value = '';
   if (!f) return;
@@ -1320,137 +1795,109 @@ $('#veMusicUpload').addEventListener('change', async (e) => {
   try {
     toast('Uploading your track…');
     const up = await uploadMedia(new Blob([f], { type: f.type || 'audio/mpeg' }));
-    if (ve.musicUrl?.startsWith('blob:')) URL.revokeObjectURL(ve.musicUrl);
-    ve.musicFile = up.name;
-    ve.musicUrl = URL.createObjectURL(f);
-    ve.musicName = f.name.replace(/\.[^.]+$/, '').slice(0, 40);
-    ve.music = 'custom';
-    renderVeMusic();
+    if (ed.music.url?.startsWith('blob:')) URL.revokeObjectURL(ed.music.url);
+    Object.assign(ed.music, { id: 'custom', file: up.name, url: URL.createObjectURL(f), name: f.name.replace(/\.[^.]+$/, '').slice(0, 40), in: 0 });
+    const probeA = new Audio(ed.music.url);
+    probeA.addEventListener('loadedmetadata', () => {
+      ed.music.dur = probeA.duration || 30;
+      $('#edMin').max = Math.max(0, Math.floor(ed.music.dur - 1));
+      renderTimeline();
+    });
+    renderEdMusicSelect();
+    syncMusicPanel();
+    renderTimeline();
     toast('Track added ✓');
   } catch (err) {
     toast(err.message, { error: true });
   }
 });
-function stopVeMusicPreview() {
-  ve.audio?.pause();
-  ve.audio = null;
-  $('#veMusicPlay').textContent = '▶';
-}
-$('#veMusicPlay').addEventListener('click', () => {
-  if (ve.audio) return stopVeMusicPreview();
-  const url = veTrackUrl();
-  if (!url) return toast('Pick a track first.');
-  ve.audio = new Audio(url);
-  ve.audio.volume = Math.min(1, ve.musicVol / 100);
-  ve.audio.play();
-  ve.audio.onended = stopVeMusicPreview;
-  $('#veMusicPlay').textContent = '❚❚';
+$('#edLoop').addEventListener('change', (e) => {
+  ed.music.loop = e.target.checked;
+  renderTimeline();
 });
-$('#veMvol').addEventListener('input', (e) => {
-  ve.musicVol = Number(e.target.value);
-  $('#veMvolOut').textContent = `${ve.musicVol}%`;
-  if (ve.audio) ve.audio.volume = Math.min(1, ve.musicVol / 100);
+$('#edMvol').addEventListener('input', (e) => {
+  ed.music.volume = Number(e.target.value);
+  $('#edMvolOut').textContent = `${ed.music.volume}%`;
 });
-$('#veOvol').addEventListener('input', (e) => {
-  ve.origVol = Number(e.target.value);
-  $('#veOvolOut').textContent = ve.origVol ? `${ve.origVol}%` : 'Muted';
-  $('#veVideo').volume = Math.min(1, ve.origVol / 100);
+$('#edMin').addEventListener('input', (e) => {
+  ed.music.in = Number(e.target.value);
+  $('#edMinOut').textContent = fmtDur(ed.music.in) || '0:00';
+  renderTimeline();
 });
+$('#edMoff').addEventListener('input', (e) => {
+  ed.music.offset = Number(e.target.value);
+  $('#edMoffOut').textContent = fmtTs(ed.music.offset);
+  renderTimeline();
+});
+$('#edMuteAll').addEventListener('change', (e) => (ed.muteAll = e.target.checked));
 
-/* preview: video from trim start + music together */
-function startVePreview() {
-  stopVeMusicPreview();
-  const v = $('#veVideo');
-  v.currentTime = ve.start;
-  v.volume = Math.min(1, ve.origVol / 100);
-  v.muted = ve.origVol === 0;
-  v.play();
-  const url = veTrackUrl();
-  if (url) {
-    ve.audio = new Audio(url);
-    ve.audio.volume = Math.min(1, ve.musicVol / 100);
-    ve.audio.play();
-  }
-  ve.playing = true;
-  $('#vePlay').textContent = '❚❚ Stop';
+/* ---------- export ---------- */
+function renderSummary() {
+  const [W, H] = FRAME_SIZES[ed.frame] || frameSize().map((v) => Math.round(v));
+  const m = ed.music.id === 'none' ? 'no music' : `music: ${ed.music.id === 'custom' ? ed.music.name : music.catalog.find((t) => t.id === ed.music.id)?.title}${ed.music.loop ? ' (repeats)' : ''}`;
+  $('#edSummary').textContent = ed.clips.length
+    ? `${ed.clips.length} clip${ed.clips.length > 1 ? 's' : ''} · ${edTotal().toFixed(1)}s · ${ed.frame === 'original' ? 'original shape' : `${W}×${H}`} · ${m}`
+    : 'Add clips first.';
+  $('#edRender').disabled = !ed.clips.length;
 }
-function stopVePreview() {
-  const v = $('#veVideo');
-  if (v) v.pause();
-  ve.audio?.pause();
-  ve.audio = null;
-  ve.playing = false;
-  if ($('#vePlay')) $('#vePlay').textContent = '▶ Play with music';
-  if ($('#veMusicPlay')) $('#veMusicPlay').textContent = '▶';
-}
-$('#vePlay').addEventListener('click', () => (ve.playing ? stopVePreview() : startVePreview()));
-$('#veClose').addEventListener('click', () => {
-  stopVePreview();
-  $('#veEditor').hidden = true;
-});
-
-/* render */
-$('#veRender').addEventListener('click', async () => {
-  stopVePreview();
-  const btn = $('#veRender');
+$('#edRender').addEventListener('click', async () => {
+  if (!ed.clips.length) return;
+  edPause();
+  const btn = $('#edRender');
   btn.disabled = true;
-  $('#veDone').hidden = true;
-  $('#veProgress').hidden = false;
-  $('#veBar').style.width = '2%';
-  $('#veStage').textContent = 'Rendering…';
+  $('#edDone').hidden = true;
+  $('#edProgress').hidden = false;
+  $('#edBar').style.width = '2%';
+  $('#edStage').textContent = 'Rendering…';
   try {
     const body = {
-      source: ve.name, crop: ve.crop, aspect: ve.aspect === 'free' ? null : ve.aspect, start: ve.start, end: ve.end,
-      music: ve.music, musicFile: ve.musicFile, musicVol: ve.musicVol / 100, origVol: ve.origVol / 100,
+      frame: ed.frame,
+      muteAll: ed.muteAll,
+      clips: ed.clips.map((c) => ({ name: c.name, in: c.in, out: c.out, crop: c.crop, mode: c.mode, zoom: c.zoom, panX: c.panX, panY: c.panY, volume: c.volume })),
+      music: ed.music.id === 'none' ? null : { id: ed.music.id, file: ed.music.file, volume: ed.music.volume / 100, loop: ed.music.loop, offset: ed.music.offset, in: ed.music.in },
     };
-    const { id } = await api('/api/video/edit', { method: 'POST', body: JSON.stringify(body) });
-    clearInterval(ve.timer);
-    ve.timer = setInterval(() => pollEdit(id), 800);
+    const { id } = await api('/api/video/render', { method: 'POST', body: JSON.stringify(body) });
+    clearInterval(ed.timer);
+    ed.timer = setInterval(() => pollRender(id), 900);
   } catch (e) {
-    toast(e.message, { error: true, ms: 8000 });
+    toast(e.message, { error: true, ms: 9000 });
     btn.disabled = false;
-    $('#veProgress').hidden = true;
+    $('#edProgress').hidden = true;
   }
 });
-
-async function pollEdit(id) {
+async function pollRender(id) {
   let j;
   try {
     j = await api(`/api/video/edit/${id}`);
   } catch (e) {
-    clearInterval(ve.timer);
-    $('#veRender').disabled = false;
+    clearInterval(ed.timer);
+    $('#edRender').disabled = false;
     return toast(e.message, { error: true });
   }
-  $('#veBar').style.width = `${Math.max(2, j.progress)}%`;
-  $('#veStage').textContent = `Rendering… ${Math.round(j.progress)}%`;
+  $('#edBar').style.width = `${Math.max(2, j.progress)}%`;
+  $('#edStage').textContent = `Rendering… ${Math.round(j.progress)}%`;
   if (j.status === 'running') return;
-  clearInterval(ve.timer);
-  $('#veRender').disabled = false;
-  $('#veProgress').hidden = true;
+  clearInterval(ed.timer);
+  $('#edRender').disabled = false;
+  $('#edProgress').hidden = true;
   if (j.status === 'error') return toast(j.error, { error: true, ms: 10000 });
-  ve.job = j;
-  $('#veDone').hidden = false;
-  $('#veInfo').textContent = `· ${j.width}×${j.height} · ${j.duration.toFixed(1)}s · ${fmtSize(j.size)}`;
-  $('#veSave').href = `/api/video/edit/${id}/file?name=${encodeURIComponent(slug(ve.title))}`;
+  ed.job = j;
+  $('#edDone').hidden = false;
+  $('#edInfo').textContent = `· ${j.width}×${j.height} · ${j.duration.toFixed(1)}s · ${fmtSize(j.size)}`;
+  $('#edSave').href = `/api/video/edit/${id}/file?name=${encodeURIComponent(slug(ed.clips[0]?.label || 'newsgram'))}`;
+  if (!$('#edCaption').value) $('#edCaption').value = `${ed.clips[0]?.label || ''}\n\n#news #viral #trending`;
   toast('Video ready ✓');
 }
-
-$('#vePreviewOut').addEventListener('click', () => {
-  if (!ve.job?.file) return;
-  const w = window.open('', '_blank');
-  if (w) w.location = `/media/${encodeURIComponent(ve.job.file)}`;
-});
-
-$('#veIg').addEventListener('click', async () => {
+$('#edWatch').addEventListener('click', () => ed.job?.file && window.open(`/media/${encodeURIComponent(ed.job.file)}`, '_blank'));
+$('#edIg').addEventListener('click', async () => {
   if (!state.config.features.instagram) return $('#igSetup').showModal();
-  const caption = $('#veCaption').value.trim();
+  const caption = $('#edCaption').value.trim();
   if (!caption) return toast('Add a caption first.', { error: true });
-  const btn = $('#veIg');
+  const btn = $('#edIg');
   busy(btn, true);
   toast('Posting to Instagram… this can take a minute.', { ms: 90000 });
   try {
-    const out = await api('/api/instagram/publish', { method: 'POST', body: JSON.stringify({ name: ve.job.file, kind: 'video', caption }) });
+    const out = await api('/api/instagram/publish', { method: 'POST', body: JSON.stringify({ name: ed.job.file, kind: 'video', caption }) });
     toast(out.permalink ? `Posted! <a href="${esc(out.permalink)}" target="_blank" rel="noopener">View on Instagram ↗</a>` : 'Posted to Instagram!', { html: true, ms: 8000 });
   } catch (e) {
     toast(`Instagram: ${e.message}`, { error: true, ms: 9000 });
@@ -1459,29 +1906,17 @@ $('#veIg').addEventListener('click', async () => {
   }
 });
 
-/* entry points */
-$('#grabEdit').addEventListener('click', () => {
-  if (!grab.job?.file) return;
-  if (/\.mp3$/i.test(grab.job.file)) return toast('That download is audio only — pick a video quality to edit.', { error: true });
-  openEditor(grab.job.file, grab.info?.title);
-});
-$('#veUpload').addEventListener('change', async (e) => {
-  const f = e.target.files?.[0];
-  e.target.value = '';
-  if (!f) return;
-  if (f.size > 300e6) return toast('Pick a video under 300 MB.', { error: true });
-  const label = e.target.closest('label');
-  label.classList.add('is-loading');
-  try {
-    const up = await uploadMedia(new Blob([f], { type: f.type || 'video/mp4' }));
-    $('#grabResult').hidden = true;
-    await openEditor(up.name, f.name.replace(/\.[^.]+$/, ''));
-  } catch (err) {
-    toast(err.message, { error: true });
-  } finally {
-    label.classList.remove('is-loading');
-  }
-});
+function renderEd() {
+  $$('#edFrame .chip').forEach((b) => b.setAttribute('aria-checked', b.dataset.f === ed.frame));
+  $('#edEmpty').hidden = ed.clips.length > 0;
+  sizeCanvas();
+  edSeek(ed.t);
+  renderTimeline();
+  renderClipPanel();
+  if (!$('#edMusic').options.length || $('#edMusic').options.length < 2) renderEdMusicSelect();
+  syncMusicPanel();
+  renderSummary();
+}
 
 /* ---------------- boot ---------------- */
 async function boot() {

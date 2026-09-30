@@ -30,6 +30,7 @@
       <button class="step" data-step="3" disabled><span>3</span>Studio</button>
     </nav>
     <div class="top-right">
+      <button class="btn btn-ghost btn-s grab-nav" id="editNav" aria-label="Video editor"><span aria-hidden="true">🎬</span><span class="grab-nav-label">Editor</span></button>
       <button class="btn btn-ghost btn-s grab-nav" id="grabNav" aria-label="Grab a video from a link"><span aria-hidden="true">⬇</span><span class="grab-nav-label">Grab video</span></button>
       <div class="flags" id="flags"></div>
     </div>
@@ -118,7 +119,7 @@
           </div>
           <div class="own-video">
             <span class="muted small">or</span>
-            <label class="btn btn-ghost btn-s file-btn">📁 Edit a video from your device<input type="file" id="veUpload" accept="video/*" /></label>
+            <button class="btn btn-ghost btn-s" id="grabOpenEditor">🎬 Open the video editor</button>
           </div>
           <p class="muted small" id="grabOff" hidden>The video grabber isn't installed on this server — run <code>npm run update-ytdlp</code>.</p>
         </div>
@@ -145,7 +146,7 @@
               <p class="ok">✓ Saved <span id="grabSize"></span></p>
               <div class="row gap-s wrap">
                 <a class="btn btn-ghost" id="grabSave" download>⬇ Save again</a>
-                <button class="btn btn-primary" id="grabEdit">✂ Crop &amp; add music</button>
+                <button class="btn btn-primary" id="grabEdit">🎬 Edit in video editor</button>
                 <button class="btn btn-ghost" id="grabToStudio">✦ Make a news card from this</button>
               </div>
               <div class="export-block ig" id="grabIgBlock">
@@ -156,76 +157,138 @@
             </div>
           </div>
         </div>
-        <div class="panel ve" id="veEditor" hidden>
-          <div class="panel-head"><h2>✂ Crop, trim &amp; add music</h2><button class="link" id="veClose">Close editor</button></div>
-          <div class="ve-grid">
-            <div class="ve-left">
-              <div class="ve-frame" id="veFrame">
-                <video id="veVideo" playsinline preload="metadata"></video>
-                <div class="ve-crop" id="veCrop" title="Drag to move the crop"><span class="ve-dims" id="veDims"></span></div>
+        <p class="muted small rights">Only download videos you have permission to reuse, and credit the original creator. Some platforms need a logged-in session for private or age-restricted posts.</p>
+      </div>
+    </section>
+
+    <!-- VIDEO EDITOR -->
+    <section class="view" id="view-edit" aria-labelledby="hEdit">
+      <div class="ed">
+        <div class="view-head">
+          <div>
+            <p class="eyebrow">Video editor</p>
+            <h1 id="hEdit" class="h-md">Cut clips together, crop &amp; add music</h1>
+          </div>
+          <div class="row gap-s wrap">
+            <label class="btn btn-primary file-btn" id="edAddLabel">＋ Add clips<input type="file" id="edAdd" accept="video/*" multiple /></label>
+            <button class="btn btn-ghost" id="edFromLink">⬇ From a link</button>
+            <button class="btn btn-ghost" id="edBack">← Back</button>
+          </div>
+        </div>
+
+        <div class="ed-main">
+          <div class="ed-stage">
+            <div class="chips ed-frames" id="edFrame" role="radiogroup" aria-label="Video shape">
+              <button class="chip" role="radio" data-f="original" aria-checked="false">Original</button>
+              <button class="chip" role="radio" data-f="9:16" aria-checked="true">9:16 Reel</button>
+              <button class="chip" role="radio" data-f="1:1" aria-checked="false">1:1</button>
+              <button class="chip" role="radio" data-f="4:5" aria-checked="false">4:5</button>
+              <button class="chip" role="radio" data-f="16:9" aria-checked="false">16:9</button>
+            </div>
+            <div class="ed-canvas-wrap" id="edCanvasWrap">
+              <canvas id="edCanvas" width="540" height="960" aria-label="Video preview"></canvas>
+              <div class="ed-empty" id="edEmpty">
+                <p><strong>Add clips to start</strong></p>
+                <p class="muted small">Upload videos from your device, or grab them from a link. They'll play one after another.</p>
               </div>
-              <div class="ve-transport">
-                <button class="btn btn-ghost btn-s" id="vePlay">▶ Play with music</button>
-                <span class="small muted" id="veTime">0:00</span>
-              </div>
-              <div class="ve-trim">
-                <label class="field"><span>Start <output id="veStartOut">0:00</output></span><input type="range" id="veStart" min="0" max="10" step="0.1" value="0" /></label>
-                <label class="field"><span>End <output id="veEndOut">0:00</output></span><input type="range" id="veEnd" min="0" max="10" step="0.1" value="10" /></label>
+            </div>
+            <div class="ed-transport">
+              <button class="btn btn-ghost btn-s icon" id="edToStart" aria-label="Go to start">⏮</button>
+              <button class="btn btn-primary btn-s icon play" id="edPlay" aria-label="Play">▶</button>
+              <span class="ed-time" id="edTime">0:00.0 / 0:00.0</span>
+              <span class="ed-spacer"></span>
+              <button class="btn btn-ghost btn-s" id="edSplit" title="Split the clip at the playhead (S)">✂ Split</button>
+              <button class="btn btn-ghost btn-s" id="edDup" title="Duplicate clip">⧉</button>
+              <button class="btn btn-ghost btn-s" id="edDel" title="Delete clip (Del)">🗑</button>
+            </div>
+          </div>
+
+          <aside class="ed-side">
+            <div class="tabs tabs-full ed-tabs" role="tablist">
+              <button class="tab is-active" data-ep="clip">Clip</button>
+              <button class="tab" data-ep="music">Music</button>
+              <button class="tab" data-ep="export">Export</button>
+            </div>
+
+            <div class="ipanel is-active" data-ep="clip">
+              <p class="muted small" id="edNoClip">Select a clip on the timeline to trim, crop and frame it.</p>
+              <div id="edClipPanel" hidden>
+                <div class="ed-clip-head"><strong id="edClipName"></strong><span class="muted small" id="edClipTimes"></span></div>
+                <div class="field">
+                  <span>Framing</span>
+                  <div class="chips" id="edMode" role="radiogroup">
+                    <button class="chip" role="radio" data-m="fill" aria-checked="true">Fill frame</button>
+                    <button class="chip" role="radio" data-m="fit" aria-checked="false">Fit (blurred edges)</button>
+                  </div>
+                </div>
+                <label class="field" id="edZoomField"><span>Zoom <output id="edZoomOut">100%</output></span><input type="range" id="edZoom" min="100" max="300" value="100" /></label>
+                <p class="muted small ed-hint" id="edPanHint">Drag the preview to reposition.</p>
+                <div class="ed-edges">
+                  <label class="field"><span>Crop top <output id="edCtOut">0%</output></span><input type="range" id="edCt" min="0" max="45" step="0.5" value="0" /></label>
+                  <label class="field"><span>Crop bottom <output id="edCbOut">0%</output></span><input type="range" id="edCb" min="0" max="45" step="0.5" value="0" /></label>
+                  <label class="field"><span>Crop left <output id="edClOut">0%</output></span><input type="range" id="edCl" min="0" max="45" step="0.5" value="0" /></label>
+                  <label class="field"><span>Crop right <output id="edCrOut">0%</output></span><input type="range" id="edCr" min="0" max="45" step="0.5" value="0" /></label>
+                </div>
+                <label class="field"><span>Clip sound <output id="edCvolOut">100%</output></span><input type="range" id="edCvol" min="0" max="150" value="100" /></label>
                 <div class="row gap-s wrap">
-                  <button class="btn btn-ghost btn-s" id="veSetStart">⇤ Start here</button>
-                  <button class="btn btn-ghost btn-s" id="veSetEnd">End here ⇥</button>
-                  <span class="small muted" id="veLen"></span>
+                  <button class="btn btn-ghost btn-s" id="edResetClip">Reset framing</button>
+                  <button class="btn btn-ghost btn-s" id="edApplyAll">Apply framing to all clips</button>
                 </div>
               </div>
             </div>
-            <div class="ve-right">
+
+            <div class="ipanel" data-ep="music">
               <div class="field">
-                <span>Frame</span>
-                <div class="chips" id="veAspect" role="radiogroup" aria-label="Frame shape">
-                  <button class="chip" role="radio" data-a="free" aria-checked="true">Free</button>
-                  <button class="chip" role="radio" data-a="1:1" aria-checked="false">1:1</button>
-                  <button class="chip" role="radio" data-a="9:16" aria-checked="false">9:16 Reel</button>
-                  <button class="chip" role="radio" data-a="4:5" aria-checked="false">4:5</button>
-                  <button class="chip" role="radio" data-a="16:9" aria-checked="false">16:9</button>
-                </div>
+                <span>Track</span>
+                <select id="edMusic"></select>
+                <label class="btn btn-ghost btn-s file-btn ed-upload">⬆ Use my own track<input type="file" id="edMusicUpload" accept="audio/*" /></label>
               </div>
-              <div class="ve-edges">
-                <label class="field"><span>Crop top <output id="veTopOut">0%</output></span><input type="range" id="veTop" min="0" max="45" step="0.5" value="0" /></label>
-                <label class="field"><span>Crop bottom <output id="veBottomOut">0%</output></span><input type="range" id="veBottom" min="0" max="45" step="0.5" value="0" /></label>
-                <label class="field"><span>Crop left <output id="veLeftOut">0%</output></span><input type="range" id="veLeft" min="0" max="45" step="0.5" value="0" /></label>
-                <label class="field"><span>Crop right <output id="veRightOut">0%</output></span><input type="range" id="veRight" min="0" max="45" step="0.5" value="0" /></label>
-              </div>
-              <button class="link" id="veReset">Reset crop</button>
-              <div class="field ve-music">
-                <span>Music</span>
-                <div class="row gap-s">
-                  <select id="veMusic"></select>
-                  <button class="btn btn-ghost btn-s" id="veMusicPlay" aria-label="Preview music">▶</button>
-                </div>
-                <label class="btn btn-ghost btn-s file-btn">⬆ Use my own track<input type="file" id="veMusicUpload" accept="audio/*" /></label>
-              </div>
-              <label class="field"><span>Music volume <output id="veMvolOut">80%</output></span><input type="range" id="veMvol" min="0" max="150" value="80" /></label>
-              <label class="field"><span>Original sound <output id="veOvolOut">100%</output></span><input type="range" id="veOvol" min="0" max="150" value="100" /></label>
-              <p class="muted small" id="veNoAudio" hidden>This video has no sound of its own.</p>
-              <button class="btn btn-primary btn-lg" id="veRender">Render video</button>
-              <div class="progress" id="veProgress" hidden><div class="bar"><i id="veBar"></i></div><span class="small muted" id="veStage">Rendering…</span></div>
-              <div class="grab-done" id="veDone" hidden>
-                <p class="ok">✓ Ready <span id="veInfo"></span></p>
+              <label class="switch ed-switch"><input type="checkbox" id="edLoop" checked /><span class="track"><span class="thumb"></span></span><span>Repeat music if the video is longer</span></label>
+              <label class="field"><span>Music volume <output id="edMvolOut">80%</output></span><input type="range" id="edMvol" min="0" max="150" value="80" /></label>
+              <label class="field"><span>Song starts from <output id="edMinOut">0:00</output></span><input type="range" id="edMin" min="0" max="30" step="0.5" value="0" /></label>
+              <label class="field"><span>Music begins at (video time) <output id="edMoffOut">0:00</output></span><input type="range" id="edMoff" min="0" max="10" step="0.1" value="0" /></label>
+              <p class="muted small">Tip: drag the music bar on the timeline to move it.</p>
+              <label class="switch ed-switch"><input type="checkbox" id="edMuteAll" /><span class="track"><span class="thumb"></span></span><span>Mute the clips' own sound</span></label>
+            </div>
+
+            <div class="ipanel" data-ep="export">
+              <p class="muted small" id="edSummary"></p>
+              <button class="btn btn-primary btn-lg" id="edRender">Render video</button>
+              <div class="progress" id="edProgress" hidden><div class="bar"><i id="edBar"></i></div><span class="small muted" id="edStage">Rendering…</span></div>
+              <div class="grab-done" id="edDone" hidden>
+                <p class="ok">✓ Ready <span id="edInfo"></span></p>
                 <div class="row gap-s wrap">
-                  <a class="btn btn-primary" id="veSave" download>⬇ Download MP4</a>
-                  <button class="btn btn-ghost" id="vePreviewOut">▶ Watch result</button>
+                  <a class="btn btn-primary" id="edSave" download>⬇ Download MP4</a>
+                  <button class="btn btn-ghost" id="edWatch">▶ Watch</button>
                 </div>
                 <div class="export-block ig">
                   <h3><span class="ig-mark"></span>Post to Instagram as a Reel</h3>
-                  <textarea id="veCaption" rows="3" maxlength="2200"></textarea>
-                  <button class="btn btn-ig" id="veIg">Post Reel</button>
+                  <textarea id="edCaption" rows="3" maxlength="2200"></textarea>
+                  <button class="btn btn-ig" id="edIg">Post Reel</button>
                 </div>
               </div>
             </div>
+          </aside>
+        </div>
+
+        <div class="tl" id="tl">
+          <div class="tl-labels">
+            <div class="tl-lab-ruler"><input type="range" id="edTlZoom" min="1" max="8" step="0.25" value="1" aria-label="Timeline zoom" /></div>
+            <div class="tl-lab">🎬 Video</div>
+            <div class="tl-lab">♪ Music</div>
+          </div>
+          <div class="tl-scroll" id="tlScroll">
+            <div class="tl-inner" id="tlInner">
+              <div class="tl-ruler" id="tlRuler"></div>
+              <div class="tl-track" id="tlVideo"></div>
+              <div class="tl-track" id="tlMusic"></div>
+              <div class="tl-playhead" id="tlPlayhead"><span class="tl-handle" id="tlHandle"></span></div>
+            </div>
           </div>
         </div>
-        <p class="muted small rights">Only download videos you have permission to reuse, and credit the original creator. Some platforms need a logged-in session for private or age-restricted posts.</p>
+        <p class="muted small ed-keys">Space: play/pause · ← →: step · S: split · Delete: remove clip · drag clip edges to trim, drag a clip to reorder</p>
       </div>
+      <div class="ed-media" id="edMedia" aria-hidden="true"></div>
     </section>
 
     <!-- STEP 2 -->
