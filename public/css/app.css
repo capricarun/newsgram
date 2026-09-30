@@ -426,6 +426,16 @@ a.btn { text-decoration: none; }
 .tl-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--hot); pointer-events: none; z-index: 6; }
 .tl-handle { position: absolute; top: 0; left: -8px; width: 18px; height: 22px; background: var(--hot); border-radius: 4px 4px 9px 9px; pointer-events: auto; cursor: ew-resize; touch-action: none; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
 
+/* ---------- save as ---------- */
+.save-row { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
+.save-row .field { margin-bottom: 4px; }
+.name-wrap { display: flex; align-items: stretch; border: 1px solid var(--line-2); border-radius: var(--radius-s); background: var(--surface-2); overflow: hidden; }
+.name-wrap:focus-within { border-color: var(--violet); }
+.name-wrap input { border: 0 !important; background: transparent !important; flex: 1; min-width: 0; }
+.name-wrap .ext { display: grid; place-items: center; padding: 0 12px; color: var(--muted); font-size: 13px; font-weight: 600; background: var(--surface-3); white-space: nowrap; }
+.save-where { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.folder-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface-3); color: var(--text); font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------- toast & modal ---------- */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;

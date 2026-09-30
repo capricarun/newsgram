@@ -137,6 +137,10 @@
               <span>Quality</span>
               <div class="chips" id="grabQuality" role="radiogroup" aria-label="Quality"></div>
             </div>
+<div class="save-row" data-save="grab">
+            <label class="field save-name"><span>File name</span><span class="name-wrap"><input type="text" id="grabFileName" maxlength="120" placeholder="Name your file" /><span class="ext" id="grabExt">.mp4</span></span></label>
+                <div class="save-where"><span class="folder-chip" data-folder>📁 Downloads</span><button class="link" data-choose>Choose folder</button><button class="link" data-reset hidden>Forget folder</button></div>
+              </div>
             <button class="btn btn-primary btn-lg" id="grabGo">⬇ Download MP4</button>
             <div class="progress" id="grabProgress" hidden>
               <div class="bar"><i id="grabBar"></i></div>
@@ -145,7 +149,8 @@
             <div class="grab-done" id="grabDone" hidden>
               <p class="ok">✓ Saved <span id="grabSize"></span></p>
               <div class="row gap-s wrap">
-                <a class="btn btn-ghost" id="grabSave" download>⬇ Save again</a>
+                <button class="btn btn-ghost" id="grabSave">💾 Save again</button>
+                <button class="btn btn-ghost" data-saveas="grab">Save as…</button>
                 <button class="btn btn-primary" id="grabEdit">🎬 Edit in video editor</button>
                 <button class="btn btn-ghost" id="grabToStudio">✦ Make a news card from this</button>
               </div>
@@ -253,12 +258,18 @@
 
             <div class="ipanel" data-ep="export">
               <p class="muted small" id="edSummary"></p>
+              <div class="save-row" data-save="ed">
+                <label class="field save-name"><span>File name</span><span class="name-wrap"><input type="text" id="edFileName" maxlength="120" placeholder="Name your file" /><span class="ext" id="edExt">.mp4</span></span></label>
+                <div class="save-where"><span class="folder-chip" data-folder>📁 Downloads</span><button class="link" data-choose>Choose folder</button><button class="link" data-reset hidden>Forget folder</button></div>
+              </div>
               <button class="btn btn-primary btn-lg" id="edRender">Render video</button>
               <div class="progress" id="edProgress" hidden><div class="bar"><i id="edBar"></i></div><span class="small muted" id="edStage">Rendering…</span></div>
               <div class="grab-done" id="edDone" hidden>
                 <p class="ok">✓ Ready <span id="edInfo"></span></p>
+
                 <div class="row gap-s wrap">
-                  <a class="btn btn-primary" id="edSave" download>⬇ Download MP4</a>
+                  <button class="btn btn-primary" id="edSave">💾 Save video</button>
+                  <button class="btn btn-ghost" data-saveas="ed">Save as…</button>
                   <button class="btn btn-ghost" id="edWatch">▶ Watch</button>
                 </div>
                 <div class="export-block ig">
@@ -457,6 +468,12 @@
 
           <!-- EXPORT -->
           <div class="ipanel" data-panel="export">
+            <div class="export-block">
+              <div class="save-row" data-save="st">
+                <label class="field save-name"><span>File name</span><span class="name-wrap"><input type="text" id="stFileName" maxlength="120" placeholder="Name your file" /><span class="ext" id="stExt">.jpg · .mp4</span></span></label>
+                <div class="save-where"><span class="folder-chip" data-folder>📁 Downloads</span><button class="link" data-choose>Choose folder</button><button class="link" data-reset hidden>Forget folder</button></div>
+              </div>
+            </div>
             <div class="export-block">
               <h3>Image post</h3>
               <div class="row gap-s wrap">

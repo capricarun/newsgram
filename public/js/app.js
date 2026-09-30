@@ -1,5 +1,6 @@
 import { renderCard, SIZE, ACCENTS, TEMPLATES, imageArea, clampPan } from './render.js';
 import { recordReel, pickMime, audioContext, playMusic } from './reel.js';
+import { initSave, saveFile, chooseFolder, clearFolder, onFolderChange, supportsFolders, cleanName, folderName } from './save.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -119,6 +120,52 @@ function download(blob, name) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
+
+/* ---------------- save as (name + folder) ---------------- */
+const readable = (t) => cleanName(String(t || '').replace(/\*/g, '').replace(/[#@]/g, '').slice(0, 80), 'newsgram');
+
+/** Saves using the name typed in the row `key` (ed / grab / st). */
+async function doSave(source, key, ext, { askWhere = false, fallbackName = 'newsgram' } = {}) {
+  const input = $(`#${key}FileName`);
+  const name = cleanName(input?.value || fallbackName);
+  if (input && !input.value.trim()) input.value = name;
+  try {
+    const r = await saveFile(source, name, ext, { askWhere });
+    if (!r) return null;
+    toast(r.where === 'folder' ? `Saved to “${r.folder}/${r.name}” ✓` : r.where === 'picker' ? `Saved “${r.name}” ✓` : `Downloading “${r.name}”…`);
+    return r;
+  } catch (e) {
+    toast(`Couldn't save: ${e.message}`, { error: true, ms: 8000 });
+    return null;
+  }
+}
+
+function syncFolderChips(folder) {
+  const pick = supportsFolders();
+  $$('[data-folder]').forEach((el) => {
+    el.textContent = folder ? `📁 ${folder.name}` : pick ? '📁 Ask me each time' : "📁 Browser's Downloads folder";
+    el.title = folder ? 'Files are saved straight into this folder' : pick ? 'A Save dialog lets you pick the folder' : 'This browser saves to its Downloads folder (on iPhone: Share → Save to Files)';
+  });
+  $$('[data-choose]').forEach((b) => {
+    b.hidden = !pick;
+    b.textContent = folder ? 'Change folder' : 'Choose folder';
+  });
+  $$('[data-reset]').forEach((b) => (b.hidden = !folder));
+  $$('[data-saveas]').forEach((b) => (b.hidden = !pick));
+}
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-choose]')) {
+    try {
+      const h = await chooseFolder();
+      if (h) toast(`New files will be saved in “${h.name}” ✓`);
+    } catch (err) {
+      toast(err.message, { error: true });
+    }
+  } else if (e.target.closest('[data-reset]')) {
+    await clearFolder();
+    toast('Folder cleared — you\'ll be asked where to save.');
+  }
+});
 
 /* ---------------- steps ---------------- */
 function go(step) {
@@ -415,6 +462,7 @@ async function openStudio(item) {
     img: null,
   });
   captionTouched = false;
+  $('#stFileName').value = readable(card.headline);
   card.caption = defaultCaption();
   syncFields();
   $('#origTitle').textContent = item.title;
@@ -690,8 +738,8 @@ function snapshot(type = 'image/jpeg', quality = 0.93) {
   return new Promise((r) => canvas.toBlob(r, type, quality));
 }
 
-$('#dlJpg').addEventListener('click', async () => download(await snapshot(), `${slug(card.headline)}.jpg`));
-$('#dlPng').addEventListener('click', async () => download(await snapshot('image/png'), `${slug(card.headline)}.png`));
+$('#dlJpg').addEventListener('click', async () => doSave(await snapshot(), 'st', 'jpg', { fallbackName: readable(card.headline) }));
+$('#dlPng').addEventListener('click', async () => doSave(await snapshot('image/png'), 'st', 'png', { fallbackName: readable(card.headline) }));
 $('#duration').addEventListener('input', (e) => ($('#durOut').textContent = `${e.target.value}s`));
 
 async function makeReel() {
@@ -728,15 +776,15 @@ $('#dlReel').addEventListener('click', async () => {
   try {
     const blob = await makeReel();
     if (!blob) return;
-    if (/mp4/.test(blob.type)) return download(blob, `${slug(card.headline)}-reel.mp4`);
+    if (/mp4/.test(blob.type)) return doSave(blob, 'st', 'mp4', { fallbackName: `${readable(card.headline)} reel` });
     if (state.config.features.transcode) {
       busy(btn, true);
       toast('Converting to MP4…');
       const up = await uploadMedia(blob);
       const mp4 = await (await fetch(up.path)).blob();
-      return download(mp4, `${slug(card.headline)}-reel.mp4`);
+      return doSave(mp4, 'st', 'mp4', { fallbackName: `${readable(card.headline)} reel` });
     }
-    download(blob, `${slug(card.headline)}-reel.webm`);
+    doSave(blob, 'st', 'webm', { fallbackName: `${readable(card.headline)} reel` });
     toast('Saved as WebM — this browser cannot record MP4 and the server has no ffmpeg.');
   } catch (e) {
     toast(`Reel failed: ${e.message}`, { error: true });
@@ -1016,9 +1064,12 @@ function renderGrabInfo() {
       grab.quality = b.dataset.q;
       $$('#grabQuality .chip').forEach((x) => x.setAttribute('aria-checked', x === b));
       $('#grabGo').textContent = grab.quality === 'audio' ? '⬇ Download MP3' : '⬇ Download MP4';
+      $('#grabExt').textContent = grab.quality === 'audio' ? '.mp3' : '.mp4';
     }),
   );
   $('#grabGo').textContent = '⬇ Download MP4';
+  $('#grabFileName').value = readable(i.title);
+  $('#grabExt').textContent = '.mp4';
   $('#grabGo').disabled = false;
   $('#grabGo').hidden = false;
   $('#grabProgress').hidden = true;
@@ -1067,18 +1118,14 @@ async function pollGrab(id) {
   $('#grabGo').hidden = true;
   $('#grabDone').hidden = false;
   $('#grabSize').textContent = `· ${fmtSize(j.size)}`;
-  const href = `/api/grab/${id}/file?name=${encodeURIComponent(slug(grab.info.title))}`;
-  $('#grabSave').href = href;
   const isAudio = /\.mp3$/i.test(j.file || '');
   $('#grabIgBlock').hidden = isAudio;
-  // Start the save straight away.
-  const a = document.createElement('a');
-  a.href = href;
-  a.download = '';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  grab.ext = isAudio ? 'mp3' : 'mp4';
+  // Save straight away with the chosen name (into the chosen folder if one is set).
+  doSave(`/media/${encodeURIComponent(j.file)}`, 'grab', grab.ext, { fallbackName: readable(grab.info.title) });
 }
+
+$('#grabSave').addEventListener('click', () => grab.job?.file && doSave(`/media/${encodeURIComponent(grab.job.file)}`, 'grab', grab.ext || 'mp4', { fallbackName: readable(grab.info?.title) }));
 
 $('#grabToStudio').addEventListener('click', () => {
   const i = grab.info;
@@ -1216,6 +1263,7 @@ async function addClip(name, label) {
     mode: 'fill', zoom: 1, panX: 0, panY: 0, volume: 1,
   };
   ed.clips.push(clip);
+  if (!$('#edFileName').value.trim()) $('#edFileName').value = readable(clip.label);
   mediaEl(name);
   ed.sel = clip.id;
   renderEd();
@@ -1884,10 +1932,20 @@ async function pollRender(id) {
   ed.job = j;
   $('#edDone').hidden = false;
   $('#edInfo').textContent = `· ${j.width}×${j.height} · ${j.duration.toFixed(1)}s · ${fmtSize(j.size)}`;
-  $('#edSave').href = `/api/video/edit/${id}/file?name=${encodeURIComponent(slug(ed.clips[0]?.label || 'newsgram'))}`;
+  if (!$('#edFileName').value.trim()) $('#edFileName').value = readable(ed.clips[0]?.label || 'newsgram video');
+  // A folder is set → save straight away.
+  if (folderName()) doSave(`/media/${encodeURIComponent(j.file)}`, 'ed', 'mp4', { fallbackName: 'newsgram video' });
   if (!$('#edCaption').value) $('#edCaption').value = `${ed.clips[0]?.label || ''}\n\n#news #viral #trending`;
   toast('Video ready ✓');
 }
+$('#edSave').addEventListener('click', () => ed.job?.file && doSave(`/media/${encodeURIComponent(ed.job.file)}`, 'ed', 'mp4', { fallbackName: 'newsgram video' }));
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-saveas]');
+  if (!b) return;
+  const key = b.dataset.saveas;
+  if (key === 'ed' && ed.job?.file) doSave(`/media/${encodeURIComponent(ed.job.file)}`, 'ed', 'mp4', { askWhere: true });
+  if (key === 'grab' && grab.job?.file) doSave(`/media/${encodeURIComponent(grab.job.file)}`, 'grab', grab.ext || 'mp4', { askWhere: true });
+});
 $('#edWatch').addEventListener('click', () => ed.job?.file && window.open(`/media/${encodeURIComponent(ed.job.file)}`, '_blank'));
 $('#edIg').addEventListener('click', async () => {
   if (!state.config.features.instagram) return $('#igSetup').showModal();
@@ -1942,6 +2000,8 @@ async function boot() {
   if (!pickMime().includes('mp4') && !f.transcode) $('#dlReel').textContent = '⬇ Record & download WebM';
   renderSources();
   loadCatalog().then(updateMusicNote);
+  onFolderChange(syncFolderChips);
+  initSave();
   checkGrabParam();
 }
 boot();
