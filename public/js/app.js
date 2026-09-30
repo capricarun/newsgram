@@ -1125,6 +1125,364 @@ function checkGrabParam() {
   }
 }
 
+
+/* ---------------- video editor: crop / trim / music ---------------- */
+const ve = {
+  name: null, title: 'video', info: null,
+  crop: { top: 0, bottom: 0, left: 0, right: 0 }, aspect: 'free',
+  start: 0, end: 0,
+  music: store.get('veMusic', 'none'), musicFile: null, musicUrl: null, musicName: '',
+  musicVol: 80, origVol: 100, job: null, timer: null, audio: null, playing: false,
+};
+const fmtT = (t) => fmtDur(Math.max(0, t)) || '0:00';
+
+async function openEditor(name, title) {
+  ve.name = name;
+  ve.title = title || 'video';
+  ve.job = null;
+  stopVePreview();
+  $('#veEditor').hidden = false;
+  $('#veDone').hidden = true;
+  $('#veProgress').hidden = true;
+  $('#veRender').disabled = true;
+  $('#veCaption').value = $('#grabCaption').value || `${ve.title}\n\n#news #viral #trending`;
+  try {
+    ve.info = await api('/api/video/probe', { method: 'POST', body: JSON.stringify({ name }) });
+  } catch (e) {
+    $('#veEditor').hidden = true;
+    return toast(e.message, { error: true, ms: 8000 });
+  }
+  const { width, height, duration, hasAudio } = ve.info;
+  $('#veFrame').style.aspectRatio = `${width} / ${height}`;
+  // Keep tall (phone) videos from overflowing: cap the frame's width by the height limit.
+  $('#veFrame').style.width = `min(100%, calc(62vh * ${width / height}))`;
+  $('#veVideo').src = `/media/${encodeURIComponent(name)}`;
+  ve.start = 0;
+  ve.end = duration || 0;
+  for (const id of ['#veStart', '#veEnd']) {
+    $(id).max = (duration || 0).toFixed(1);
+  }
+  $('#veStart').value = 0;
+  $('#veEnd').value = (duration || 0).toFixed(1);
+  $('#veNoAudio').hidden = hasAudio;
+  $('#veOvol').disabled = !hasAudio;
+  setAspect('free', true);
+  renderVeMusic();
+  syncTrim();
+  $('#veRender').disabled = false;
+  $('#veEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function syncCrop() {
+  const c = ve.crop;
+  const el = $('#veCrop');
+  el.style.left = `${c.left}%`;
+  el.style.top = `${c.top}%`;
+  el.style.width = `${100 - c.left - c.right}%`;
+  el.style.height = `${100 - c.top - c.bottom}%`;
+  for (const k of ['top', 'bottom', 'left', 'right']) {
+    const cap = k === 'top' || k === 'bottom' ? 'Top Bottom' : 'Left Right';
+    const input = $(`#ve${k[0].toUpperCase() + k.slice(1)}`);
+    input.max = Math.max(45, Math.ceil(c[k]));
+    input.value = c[k];
+    $(`#ve${k[0].toUpperCase() + k.slice(1)}Out`).textContent = `${Math.round(c[k])}%`;
+  }
+  if (ve.info) {
+    const w = Math.round(ve.info.width * (1 - (c.left + c.right) / 100));
+    const h = Math.round(ve.info.height * (1 - (c.top + c.bottom) / 100));
+    $('#veDims').textContent = `${w} × ${h}`;
+  }
+}
+
+function setAspect(a, reset = false) {
+  ve.aspect = a;
+  $$('#veAspect .chip').forEach((b) => b.setAttribute('aria-checked', b.dataset.a === a));
+  if (!ve.info) return;
+  if (a === 'free') {
+    if (reset) ve.crop = { top: 0, bottom: 0, left: 0, right: 0 };
+    return syncCrop();
+  }
+  const [rw, rh] = a.split(':').map(Number);
+  const R = rw / rh;
+  const S = ve.info.width / ve.info.height;
+  if (S > R) {
+    const side = ((1 - R / S) / 2) * 100;
+    ve.crop = { top: 0, bottom: 0, left: side, right: side };
+  } else {
+    const side = ((1 - S / R) / 2) * 100;
+    ve.crop = { top: side, bottom: side, left: 0, right: 0 };
+  }
+  syncCrop();
+}
+$$('#veAspect .chip').forEach((b) => b.addEventListener('click', () => setAspect(b.dataset.a, true)));
+$('#veReset').addEventListener('click', () => setAspect('free', true));
+
+for (const k of ['top', 'bottom', 'left', 'right']) {
+  const cap = k[0].toUpperCase() + k.slice(1);
+  $(`#ve${cap}`).addEventListener('input', (e) => {
+    const other = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }[k];
+    ve.crop[k] = Math.min(Number(e.target.value), 90 - ve.crop[other]);
+    if (ve.aspect !== 'free') {
+      ve.aspect = 'free';
+      $$('#veAspect .chip').forEach((b) => b.setAttribute('aria-checked', b.dataset.a === 'free'));
+    }
+    syncCrop();
+  });
+}
+
+// Drag the crop box to reposition it (keeps its size).
+{
+  let drag = null;
+  const box = $('#veCrop');
+  box.addEventListener('pointerdown', (e) => {
+    box.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, y: e.clientY, crop: { ...ve.crop } };
+  });
+  box.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const r = $('#veFrame').getBoundingClientRect();
+    const dx = ((e.clientX - drag.x) / r.width) * 100;
+    const dy = ((e.clientY - drag.y) / r.height) * 100;
+    const h = drag.crop.left + drag.crop.right;
+    const v = drag.crop.top + drag.crop.bottom;
+    ve.crop.left = Math.max(0, Math.min(h, drag.crop.left + dx));
+    ve.crop.right = h - ve.crop.left;
+    ve.crop.top = Math.max(0, Math.min(v, drag.crop.top + dy));
+    ve.crop.bottom = v - ve.crop.top;
+    syncCrop();
+  });
+  const end = () => (drag = null);
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+}
+
+function syncTrim() {
+  ve.start = Number($('#veStart').value);
+  ve.end = Number($('#veEnd').value);
+  if (ve.end - ve.start < 0.5) {
+    ve.end = Math.min(ve.info?.duration || ve.start + 0.5, ve.start + 0.5);
+    $('#veEnd').value = ve.end;
+  }
+  $('#veStartOut').textContent = fmtT(ve.start);
+  $('#veEndOut').textContent = fmtT(ve.end);
+  $('#veLen').textContent = `Length ${(ve.end - ve.start).toFixed(1)}s`;
+}
+$('#veStart').addEventListener('input', () => {
+  syncTrim();
+  $('#veVideo').currentTime = ve.start;
+});
+$('#veEnd').addEventListener('input', () => {
+  syncTrim();
+  $('#veVideo').currentTime = ve.end;
+});
+$('#veSetStart').addEventListener('click', () => {
+  $('#veStart').value = $('#veVideo').currentTime.toFixed(1);
+  syncTrim();
+});
+$('#veSetEnd').addEventListener('click', () => {
+  $('#veEnd').value = $('#veVideo').currentTime.toFixed(1);
+  syncTrim();
+});
+$('#veVideo').addEventListener('timeupdate', () => {
+  const v = $('#veVideo');
+  $('#veTime').textContent = `${fmtT(v.currentTime)} / ${fmtT(ve.info?.duration || 0)}`;
+  if (ve.playing && v.currentTime >= ve.end) stopVePreview();
+});
+$('#veVideo').addEventListener('click', () => (ve.playing ? stopVePreview() : startVePreview()));
+
+/* music */
+function veTrackUrl() {
+  if (ve.music === 'none') return null;
+  if (ve.music === 'custom') return ve.musicUrl;
+  return music.catalog.find((t) => t.id === ve.music)?.file || null;
+}
+function renderVeMusic() {
+  const groups = {};
+  for (const t of music.catalog) (groups[t.group || 'Background beds'] ||= []).push(t);
+  $('#veMusic').innerHTML =
+    `<option value="none">No music</option>` +
+    Object.entries(groups).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((t) => `<option value="${t.id}">${esc(t.title)} — ${esc(t.mood)}</option>`).join('')}</optgroup>`).join('') +
+    (ve.musicFile ? `<option value="custom">Your track: ${esc(ve.musicName)}</option>` : '');
+  if (ve.music === 'custom' && !ve.musicFile) ve.music = 'none';
+  if (ve.music !== 'none' && ve.music !== 'custom' && !music.catalog.some((t) => t.id === ve.music)) ve.music = 'none';
+  $('#veMusic').value = ve.music;
+}
+$('#veMusic').addEventListener('change', (e) => {
+  ve.music = e.target.value;
+  if (ve.music !== 'custom') store.set('veMusic', ve.music);
+  if (ve.audio && !ve.playing) stopVeMusicPreview();
+});
+$('#veMusicUpload').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.size > 40e6) return toast('Pick a track under 40 MB.', { error: true });
+  try {
+    toast('Uploading your track…');
+    const up = await uploadMedia(new Blob([f], { type: f.type || 'audio/mpeg' }));
+    if (ve.musicUrl?.startsWith('blob:')) URL.revokeObjectURL(ve.musicUrl);
+    ve.musicFile = up.name;
+    ve.musicUrl = URL.createObjectURL(f);
+    ve.musicName = f.name.replace(/\.[^.]+$/, '').slice(0, 40);
+    ve.music = 'custom';
+    renderVeMusic();
+    toast('Track added ✓');
+  } catch (err) {
+    toast(err.message, { error: true });
+  }
+});
+function stopVeMusicPreview() {
+  ve.audio?.pause();
+  ve.audio = null;
+  $('#veMusicPlay').textContent = '▶';
+}
+$('#veMusicPlay').addEventListener('click', () => {
+  if (ve.audio) return stopVeMusicPreview();
+  const url = veTrackUrl();
+  if (!url) return toast('Pick a track first.');
+  ve.audio = new Audio(url);
+  ve.audio.volume = Math.min(1, ve.musicVol / 100);
+  ve.audio.play();
+  ve.audio.onended = stopVeMusicPreview;
+  $('#veMusicPlay').textContent = '❚❚';
+});
+$('#veMvol').addEventListener('input', (e) => {
+  ve.musicVol = Number(e.target.value);
+  $('#veMvolOut').textContent = `${ve.musicVol}%`;
+  if (ve.audio) ve.audio.volume = Math.min(1, ve.musicVol / 100);
+});
+$('#veOvol').addEventListener('input', (e) => {
+  ve.origVol = Number(e.target.value);
+  $('#veOvolOut').textContent = ve.origVol ? `${ve.origVol}%` : 'Muted';
+  $('#veVideo').volume = Math.min(1, ve.origVol / 100);
+});
+
+/* preview: video from trim start + music together */
+function startVePreview() {
+  stopVeMusicPreview();
+  const v = $('#veVideo');
+  v.currentTime = ve.start;
+  v.volume = Math.min(1, ve.origVol / 100);
+  v.muted = ve.origVol === 0;
+  v.play();
+  const url = veTrackUrl();
+  if (url) {
+    ve.audio = new Audio(url);
+    ve.audio.volume = Math.min(1, ve.musicVol / 100);
+    ve.audio.play();
+  }
+  ve.playing = true;
+  $('#vePlay').textContent = '❚❚ Stop';
+}
+function stopVePreview() {
+  const v = $('#veVideo');
+  if (v) v.pause();
+  ve.audio?.pause();
+  ve.audio = null;
+  ve.playing = false;
+  if ($('#vePlay')) $('#vePlay').textContent = '▶ Play with music';
+  if ($('#veMusicPlay')) $('#veMusicPlay').textContent = '▶';
+}
+$('#vePlay').addEventListener('click', () => (ve.playing ? stopVePreview() : startVePreview()));
+$('#veClose').addEventListener('click', () => {
+  stopVePreview();
+  $('#veEditor').hidden = true;
+});
+
+/* render */
+$('#veRender').addEventListener('click', async () => {
+  stopVePreview();
+  const btn = $('#veRender');
+  btn.disabled = true;
+  $('#veDone').hidden = true;
+  $('#veProgress').hidden = false;
+  $('#veBar').style.width = '2%';
+  $('#veStage').textContent = 'Rendering…';
+  try {
+    const body = {
+      source: ve.name, crop: ve.crop, aspect: ve.aspect === 'free' ? null : ve.aspect, start: ve.start, end: ve.end,
+      music: ve.music, musicFile: ve.musicFile, musicVol: ve.musicVol / 100, origVol: ve.origVol / 100,
+    };
+    const { id } = await api('/api/video/edit', { method: 'POST', body: JSON.stringify(body) });
+    clearInterval(ve.timer);
+    ve.timer = setInterval(() => pollEdit(id), 800);
+  } catch (e) {
+    toast(e.message, { error: true, ms: 8000 });
+    btn.disabled = false;
+    $('#veProgress').hidden = true;
+  }
+});
+
+async function pollEdit(id) {
+  let j;
+  try {
+    j = await api(`/api/video/edit/${id}`);
+  } catch (e) {
+    clearInterval(ve.timer);
+    $('#veRender').disabled = false;
+    return toast(e.message, { error: true });
+  }
+  $('#veBar').style.width = `${Math.max(2, j.progress)}%`;
+  $('#veStage').textContent = `Rendering… ${Math.round(j.progress)}%`;
+  if (j.status === 'running') return;
+  clearInterval(ve.timer);
+  $('#veRender').disabled = false;
+  $('#veProgress').hidden = true;
+  if (j.status === 'error') return toast(j.error, { error: true, ms: 10000 });
+  ve.job = j;
+  $('#veDone').hidden = false;
+  $('#veInfo').textContent = `· ${j.width}×${j.height} · ${j.duration.toFixed(1)}s · ${fmtSize(j.size)}`;
+  $('#veSave').href = `/api/video/edit/${id}/file?name=${encodeURIComponent(slug(ve.title))}`;
+  toast('Video ready ✓');
+}
+
+$('#vePreviewOut').addEventListener('click', () => {
+  if (!ve.job?.file) return;
+  const w = window.open('', '_blank');
+  if (w) w.location = `/media/${encodeURIComponent(ve.job.file)}`;
+});
+
+$('#veIg').addEventListener('click', async () => {
+  if (!state.config.features.instagram) return $('#igSetup').showModal();
+  const caption = $('#veCaption').value.trim();
+  if (!caption) return toast('Add a caption first.', { error: true });
+  const btn = $('#veIg');
+  busy(btn, true);
+  toast('Posting to Instagram… this can take a minute.', { ms: 90000 });
+  try {
+    const out = await api('/api/instagram/publish', { method: 'POST', body: JSON.stringify({ name: ve.job.file, kind: 'video', caption }) });
+    toast(out.permalink ? `Posted! <a href="${esc(out.permalink)}" target="_blank" rel="noopener">View on Instagram ↗</a>` : 'Posted to Instagram!', { html: true, ms: 8000 });
+  } catch (e) {
+    toast(`Instagram: ${e.message}`, { error: true, ms: 9000 });
+  } finally {
+    busy(btn, false);
+  }
+});
+
+/* entry points */
+$('#grabEdit').addEventListener('click', () => {
+  if (!grab.job?.file) return;
+  if (/\.mp3$/i.test(grab.job.file)) return toast('That download is audio only — pick a video quality to edit.', { error: true });
+  openEditor(grab.job.file, grab.info?.title);
+});
+$('#veUpload').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.size > 300e6) return toast('Pick a video under 300 MB.', { error: true });
+  const label = e.target.closest('label');
+  label.classList.add('is-loading');
+  try {
+    const up = await uploadMedia(new Blob([f], { type: f.type || 'video/mp4' }));
+    $('#grabResult').hidden = true;
+    await openEditor(up.name, f.name.replace(/\.[^.]+$/, ''));
+  } catch (err) {
+    toast(err.message, { error: true });
+  } finally {
+    label.classList.remove('is-loading');
+  }
+});
+
 /* ---------------- boot ---------------- */
 async function boot() {
   try {

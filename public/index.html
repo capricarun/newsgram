@@ -116,6 +116,10 @@
           <div class="platforms" aria-hidden="true">
             <span style="--c:#FF0033">YouTube</span><span style="--c:#E7E9EA">X</span><span style="--c:#E1306C">Instagram</span><span style="--c:#1877F2">Facebook</span><span style="--c:#FF6F00">ShareChat</span><span style="--c:#8B5CF6">+1,800 sites</span>
           </div>
+          <div class="own-video">
+            <span class="muted small">or</span>
+            <label class="btn btn-ghost btn-s file-btn">📁 Edit a video from your device<input type="file" id="veUpload" accept="video/*" /></label>
+          </div>
           <p class="muted small" id="grabOff" hidden>The video grabber isn't installed on this server — run <code>npm run update-ytdlp</code>.</p>
         </div>
 
@@ -141,12 +145,81 @@
               <p class="ok">✓ Saved <span id="grabSize"></span></p>
               <div class="row gap-s wrap">
                 <a class="btn btn-ghost" id="grabSave" download>⬇ Save again</a>
+                <button class="btn btn-primary" id="grabEdit">✂ Crop &amp; add music</button>
                 <button class="btn btn-ghost" id="grabToStudio">✦ Make a news card from this</button>
               </div>
               <div class="export-block ig" id="grabIgBlock">
                 <h3><span class="ig-mark"></span>Post to Instagram as a Reel</h3>
                 <textarea id="grabCaption" rows="4" maxlength="2200"></textarea>
                 <button class="btn btn-ig" id="grabIg">Post Reel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel ve" id="veEditor" hidden>
+          <div class="panel-head"><h2>✂ Crop, trim &amp; add music</h2><button class="link" id="veClose">Close editor</button></div>
+          <div class="ve-grid">
+            <div class="ve-left">
+              <div class="ve-frame" id="veFrame">
+                <video id="veVideo" playsinline preload="metadata"></video>
+                <div class="ve-crop" id="veCrop" title="Drag to move the crop"><span class="ve-dims" id="veDims"></span></div>
+              </div>
+              <div class="ve-transport">
+                <button class="btn btn-ghost btn-s" id="vePlay">▶ Play with music</button>
+                <span class="small muted" id="veTime">0:00</span>
+              </div>
+              <div class="ve-trim">
+                <label class="field"><span>Start <output id="veStartOut">0:00</output></span><input type="range" id="veStart" min="0" max="10" step="0.1" value="0" /></label>
+                <label class="field"><span>End <output id="veEndOut">0:00</output></span><input type="range" id="veEnd" min="0" max="10" step="0.1" value="10" /></label>
+                <div class="row gap-s wrap">
+                  <button class="btn btn-ghost btn-s" id="veSetStart">⇤ Start here</button>
+                  <button class="btn btn-ghost btn-s" id="veSetEnd">End here ⇥</button>
+                  <span class="small muted" id="veLen"></span>
+                </div>
+              </div>
+            </div>
+            <div class="ve-right">
+              <div class="field">
+                <span>Frame</span>
+                <div class="chips" id="veAspect" role="radiogroup" aria-label="Frame shape">
+                  <button class="chip" role="radio" data-a="free" aria-checked="true">Free</button>
+                  <button class="chip" role="radio" data-a="1:1" aria-checked="false">1:1</button>
+                  <button class="chip" role="radio" data-a="9:16" aria-checked="false">9:16 Reel</button>
+                  <button class="chip" role="radio" data-a="4:5" aria-checked="false">4:5</button>
+                  <button class="chip" role="radio" data-a="16:9" aria-checked="false">16:9</button>
+                </div>
+              </div>
+              <div class="ve-edges">
+                <label class="field"><span>Crop top <output id="veTopOut">0%</output></span><input type="range" id="veTop" min="0" max="45" step="0.5" value="0" /></label>
+                <label class="field"><span>Crop bottom <output id="veBottomOut">0%</output></span><input type="range" id="veBottom" min="0" max="45" step="0.5" value="0" /></label>
+                <label class="field"><span>Crop left <output id="veLeftOut">0%</output></span><input type="range" id="veLeft" min="0" max="45" step="0.5" value="0" /></label>
+                <label class="field"><span>Crop right <output id="veRightOut">0%</output></span><input type="range" id="veRight" min="0" max="45" step="0.5" value="0" /></label>
+              </div>
+              <button class="link" id="veReset">Reset crop</button>
+              <div class="field ve-music">
+                <span>Music</span>
+                <div class="row gap-s">
+                  <select id="veMusic"></select>
+                  <button class="btn btn-ghost btn-s" id="veMusicPlay" aria-label="Preview music">▶</button>
+                </div>
+                <label class="btn btn-ghost btn-s file-btn">⬆ Use my own track<input type="file" id="veMusicUpload" accept="audio/*" /></label>
+              </div>
+              <label class="field"><span>Music volume <output id="veMvolOut">80%</output></span><input type="range" id="veMvol" min="0" max="150" value="80" /></label>
+              <label class="field"><span>Original sound <output id="veOvolOut">100%</output></span><input type="range" id="veOvol" min="0" max="150" value="100" /></label>
+              <p class="muted small" id="veNoAudio" hidden>This video has no sound of its own.</p>
+              <button class="btn btn-primary btn-lg" id="veRender">Render video</button>
+              <div class="progress" id="veProgress" hidden><div class="bar"><i id="veBar"></i></div><span class="small muted" id="veStage">Rendering…</span></div>
+              <div class="grab-done" id="veDone" hidden>
+                <p class="ok">✓ Ready <span id="veInfo"></span></p>
+                <div class="row gap-s wrap">
+                  <a class="btn btn-primary" id="veSave" download>⬇ Download MP4</a>
+                  <button class="btn btn-ghost" id="vePreviewOut">▶ Watch result</button>
+                </div>
+                <div class="export-block ig">
+                  <h3><span class="ig-mark"></span>Post to Instagram as a Reel</h3>
+                  <textarea id="veCaption" rows="3" maxlength="2200"></textarea>
+                  <button class="btn btn-ig" id="veIg">Post Reel</button>
+                </div>
               </div>
             </div>
           </div>

@@ -362,6 +362,28 @@ a.btn { text-decoration: none; }
 .grab-done textarea { margin-bottom: 10px; }
 .rights { text-align: center; margin-top: 4px; }
 
+/* ---------- video editor ---------- */
+.own-video { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.ve-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.ve-frame { position: relative; margin: 0 auto; max-width: 100%; max-height: 62vh; background: #000; border-radius: 10px; overflow: hidden; touch-action: none; user-select: none; }
+.ve-frame video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; display: block; }
+.ve-crop {
+  position: absolute; border: 2px solid var(--accent); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62); cursor: move; border-radius: 2px;
+  background-image: linear-gradient(rgba(255,255,255,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.18) 1px, transparent 1px);
+  background-size: 33.333% 33.333%; background-position: -1px -1px;
+}
+.ve-dims { position: absolute; left: 6px; bottom: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,.7); color: var(--accent); }
+.ve-transport { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 6px; }
+.ve-trim .field { margin-bottom: 8px; }
+.ve-edges { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.ve-edges .field { margin-bottom: 10px; }
+.ve-music { margin-top: 14px; }
+.ve-music select { flex: 1; }
+.ve-music .file-btn { align-self: flex-start; }
+#veReset { margin-bottom: 4px; }
+.ve .chips { gap: 6px; }
+.ve .chip { padding: 7px 12px; font-size: 13px; }
+
 /* ---------- toast & modal ---------- */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
@@ -387,6 +409,7 @@ a.btn { text-decoration: none; }
   .flags { display: none; }
   .grab-nav-label { display: none; }
   .grab-result { grid-template-columns: 1fr; }
+  .ve-grid { grid-template-columns: 1fr; }
   .stepper { justify-content: flex-end; gap: 4px; }
   .stepper i { width: 8px; }
   .step { font-size: 0; padding: 4px; gap: 0; }

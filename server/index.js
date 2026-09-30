@@ -14,6 +14,7 @@ import { publishToInstagram, igEnabled } from './instagram.js';
 import { assertPublicUrl, fetchWithTimeout } from './util.js';
 import { mockImageSvg } from './mock.js';
 import { grabInfo, startGrab, grabJob, ytdlpPath, ytdlpVersion } from './grab.js';
+import { probe, startEdit, editJob } from './edit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -127,9 +128,16 @@ app.get('/api/video', wrap(async (req, res) => {
 }));
 
 // Saves a rendered card / reel so it has a public URL (needed by Instagram).
-app.post('/api/media', express.raw({ type: ['image/*', 'video/*'], limit: '150mb' }), wrap(async (req, res) => {
-  const type = req.headers['content-type'] || '';
-  const ext = type.includes('jpeg') ? 'jpg' : type.includes('png') ? 'png' : type.includes('mp4') ? 'mp4' : type.includes('webm') ? 'webm' : null;
+const MEDIA_TYPES = {
+  'image/jpeg': 'jpg', 'image/png': 'png',
+  'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-matroska': 'mkv', 'video/3gpp': '3gp',
+  'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac',
+  'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm',
+};
+
+app.post('/api/media', express.raw({ type: ['image/*', 'video/*', 'audio/*'], limit: '300mb' }), wrap(async (req, res) => {
+  const type = (req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  const ext = MEDIA_TYPES[type] || null;
   if (!ext || !req.body?.length) return res.status(400).json({ error: 'Unsupported media' });
   let name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
   fs.writeFileSync(path.join(MEDIA_DIR, name), req.body);
@@ -192,6 +200,48 @@ app.get('/api/grab/:id/file', (req, res) => {
   if (!j?.file) return res.status(404).json({ error: 'Not ready' });
   const ext = path.extname(j.file);
   const name = (String(req.query.name || 'video').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'video') + ext;
+  res.download(path.join(MEDIA_DIR, j.file), name);
+});
+
+/* ---------- video editor: crop / trim / music ---------- */
+const mediaFile = (name) => {
+  const f = path.join(MEDIA_DIR, path.basename(String(name || '')));
+  if (!name || !fs.existsSync(f)) throw Object.assign(new Error('File not found — it may have expired. Download or upload it again.'), { status: 404 });
+  return f;
+};
+
+app.post('/api/video/probe', wrap(async (req, res) => {
+  if (!ffmpegPath) throw new Error('ffmpeg is not available on this server.');
+  res.json(await probe(ffmpegPath, mediaFile(req.body?.name)));
+}));
+
+app.post('/api/video/edit', wrap(async (req, res) => {
+  if (!ffmpegPath) throw new Error('ffmpeg is not available on this server.');
+  const b = req.body || {};
+  let musicPath = null;
+  if (b.music && b.music !== 'none') {
+    musicPath = b.music === 'custom'
+      ? mediaFile(b.musicFile)
+      : path.join(ROOT, 'public', 'music', `${path.basename(String(b.music)).replace(/[^\w-]/g, '')}.mp3`);
+  }
+  const { job } = await startEdit(ffmpegPath, MEDIA_DIR, {
+    source: path.basename(mediaFile(b.source)),
+    crop: b.crop, aspect: b.aspect, start: b.start, end: b.end, musicPath, musicVol: b.musicVol, origVol: b.origVol, maxWidth: b.maxWidth,
+  });
+  cleanupMedia();
+  res.json({ id: job.id });
+}));
+
+app.get('/api/video/edit/:id', (req, res) => {
+  const j = editJob(req.params.id);
+  if (!j) return res.status(404).json({ error: 'Unknown or expired render' });
+  res.json({ id: j.id, status: j.status, progress: j.progress, error: j.error, file: j.file, size: j.size || null, width: j.width, height: j.height, duration: j.duration });
+});
+
+app.get('/api/video/edit/:id/file', (req, res) => {
+  const j = editJob(req.params.id);
+  if (!j?.file) return res.status(404).json({ error: 'Not ready' });
+  const name = (String(req.query.name || 'video').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'video') + '-edited.mp4';
   res.download(path.join(MEDIA_DIR, j.file), name);
 });
 
