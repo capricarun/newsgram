@@ -168,7 +168,18 @@ document.addEventListener('click', async (e) => {
 });
 
 /* ---------------- steps ---------------- */
+const nav = { image: 1, video: 'grab' };
 function go(step) {
+  const mode = step === 'grab' || step === 'edit' ? 'video' : 'image';
+  nav[mode] = step;
+  $$('.mode').forEach((m) => {
+    m.classList.toggle('is-active', m.dataset.mode === mode);
+    m.setAttribute('aria-selected', m.dataset.mode === mode);
+  });
+  $('.stepper').hidden = mode !== 'image';
+  $('.vtabs').hidden = mode !== 'video';
+  $$('.vtab').forEach((t) => t.classList.toggle('is-active', t.dataset.v === step));
+  if (mode === 'image' && typeof edPause === 'function') edPause();
   $$('.view').forEach((v) => v.classList.toggle('is-active', v.id === `view-${step}`));
   $$('.step').forEach((b) => {
     const n = Number(b.dataset.step);
@@ -180,6 +191,13 @@ function go(step) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 $$('.step').forEach((b) => b.addEventListener('click', () => !b.disabled && go(Number(b.dataset.step))));
+$$('.mode').forEach((m) =>
+  m.addEventListener('click', () => {
+    if (m.dataset.mode === 'image') go(nav.image);
+    else if (nav.video === 'edit') openEditorView();
+    else openGrab();
+  }),
+);
 
 /* ---------------- step 1: sources ---------------- */
 function renderSources() {
@@ -188,15 +206,11 @@ function renderSources() {
     { id: 'national', label: 'National · English' },
     { id: 'tamil', label: 'Tamil · தமிழ்' },
   ];
-  const card = (s) => `<button class="source-card" style="--c:${s.color}" data-id="${s.id}" aria-pressed="${state.sources.has(s.id)}">
-        <span class="s-name"><span class="s-dot"></span>${esc(s.name)}</span>
-        <span class="s-meta">${esc(s.domain)}${s.only ? ' · cinema & TN only' : ` · @${esc(s.x)}`}</span>
-        <span class="s-check">✓</span>
-      </button>`;
+  const card = (s) => `<button class="source-card" style="--c:${s.color}" data-id="${s.id}" aria-pressed="${state.sources.has(s.id)}" title="${esc(s.domain)}"><span class="s-dot"></span>${esc(s.name)}</button>`;
   $('#sourceGrid').innerHTML = GROUPS.map((g) => {
     const list = sources.filter((s) => (s.group || 'national') === g.id);
     return list.length
-      ? `<div class="source-group"><div class="group-head"><h3>${g.label} <span class="group-count" data-count="${g.id}"></span></h3><button class="link" data-group="${g.id}"></button></div><div class="source-grid-inner">${list.map(card).join('')}</div></div>`
+      ? `<div class="source-group"><div class="group-head"><h3>${g.label} <span class="group-count" data-count="${g.id}"></span></h3><span class="sel-actions"><button class="sel-btn all sm" data-group="${g.id}" data-act="all">✓ All</button><button class="sel-btn clear sm" data-group="${g.id}" data-act="clear">✕ Clear</button></span></div><div class="source-grid-inner">${list.map(card).join('')}</div></div>`
       : '';
   }).join('');
   // Tap any channel to toggle it — pick as many as you like, from either group.
@@ -211,8 +225,7 @@ function renderSources() {
   $$('#sourceGrid [data-group]').forEach((b) =>
     b.addEventListener('click', () => {
       const ids = sources.filter((s) => (s.group || 'national') === b.dataset.group).map((s) => s.id);
-      const allOn = ids.every((id) => state.sources.has(id));
-      ids.forEach((id) => (allOn ? state.sources.delete(id) : state.sources.add(id)));
+      ids.forEach((id) => (b.dataset.act === 'all' ? state.sources.add(id) : state.sources.delete(id)));
       syncSourceCards();
     }),
   );
@@ -248,10 +261,13 @@ function syncSourceCards() {
   $$('#sourceGrid [data-group]').forEach((b) => {
     const ids = state.config.sources.filter((s) => (s.group || 'national') === b.dataset.group).map((s) => s.id);
     const on = ids.filter((id) => state.sources.has(id)).length;
-    b.textContent = on === ids.length ? 'Clear group' : 'Select all in group';
+    b.disabled = b.dataset.act === 'all' ? on === ids.length : on === 0;
     const cnt = $(`[data-count="${b.dataset.group}"]`);
-    if (cnt) cnt.textContent = on ? `· ${on} of ${ids.length} selected` : '';
+    if (cnt) cnt.textContent = on ? `· ${on}/${ids.length}` : '';
   });
+  const total = state.config.sources.length;
+  $('#selAll').disabled = state.sources.size === total;
+  $('#selNone').disabled = state.sources.size === 0;
   updatePick();
 }
 
@@ -1011,7 +1027,6 @@ function openGrab(prefill = '') {
   setTimeout(() => $('#grabUrl').focus(), 50);
 }
 $('#grabNav').addEventListener('click', () => openGrab());
-$('#grabBack').addEventListener('click', () => (grab.from === 'edit' ? openEditorView() : go(isNaN(Number(grab.from)) ? 1 : Number(grab.from))));
 
 $('#grabPaste').addEventListener('click', async () => {
   try {
@@ -1230,12 +1245,6 @@ function openEditorView() {
   renderEd();
 }
 $('#editNav').addEventListener('click', openEditorView);
-$('#grabOpenEditor').addEventListener('click', openEditorView);
-$('#edBack').addEventListener('click', () => {
-  edPause();
-  const f = ed.from;
-  f === 'grab' ? go('grab') : go(isNaN(Number(f)) ? 1 : Number(f));
-});
 $('#edFromLink').addEventListener('click', () => {
   edPause();
   openGrab();

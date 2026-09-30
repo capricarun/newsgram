@@ -22,35 +22,38 @@
       <span class="brand-mark">N</span>
       <span class="brand-name">newsgram</span>
     </a>
-    <nav class="stepper" aria-label="Progress">
+    <div class="modes" role="tablist" aria-label="Workspace">
+      <button class="mode is-active" data-mode="image" role="tab" aria-selected="true"><span aria-hidden="true">🖼</span> Image</button>
+      <button class="mode" data-mode="video" role="tab" aria-selected="false"><span aria-hidden="true">🎬</span> Video</button>
+    </div>
+    <div class="top-right">
+      <div class="flags" id="flags"></div>
+    </div>
+  </header>
+
+  <div class="subnav">
+    <nav class="stepper" data-for="image" aria-label="Image steps">
       <button class="step is-active" data-step="1"><span>1</span>Sources</button>
       <i></i>
       <button class="step" data-step="2" disabled><span>2</span>Stories</button>
       <i></i>
       <button class="step" data-step="3" disabled><span>3</span>Studio</button>
     </nav>
-    <div class="top-right">
-      <button class="btn btn-ghost btn-s grab-nav" id="editNav" aria-label="Video editor"><span aria-hidden="true">🎬</span><span class="grab-nav-label">Editor</span></button>
-      <button class="btn btn-ghost btn-s grab-nav" id="grabNav" aria-label="Grab a video from a link"><span aria-hidden="true">⬇</span><span class="grab-nav-label">Grab video</span></button>
-      <div class="flags" id="flags"></div>
-    </div>
-  </header>
+    <nav class="vtabs" data-for="video" aria-label="Video tools" hidden>
+      <button class="vtab" id="grabNav" data-v="grab">⬇ Grab video</button>
+      <button class="vtab" id="editNav" data-v="edit">✂ Editor</button>
+    </nav>
+  </div>
 
   <main>
     <!-- STEP 1 -->
-    <section class="view is-active" id="view-1" aria-labelledby="h1">
-      <div class="hero">
-        <p class="eyebrow">Live from India's newsrooms</p>
-        <h1 id="h1">Turn today's headlines into <span class="grad">scroll-stopping posts.</span></h1>
-        <p class="lede">Pick your sources and a beat. We'll pull the latest stories, rewrite them with AI and drop them onto 1:1 cards ready for Instagram.</p>
-      </div>
-
+    <section class="view is-active" id="view-1" aria-label="Sources">
       <div class="panel">
         <div class="panel-head">
-          <h2>News sources</h2>
-          <div class="row gap-s">
-            <button class="link" id="selAll">Select all</button>
-            <button class="link" id="selNone">Clear</button>
+          <span class="sec-label">Channels</span>
+          <div class="sel-actions">
+            <button class="sel-btn all" id="selAll">✓ Select all</button>
+            <button class="sel-btn clear" id="selNone">✕ Clear</button>
           </div>
         </div>
         <div class="source-grid" id="sourceGrid"></div>
@@ -62,7 +65,7 @@
       </div>
 
       <div class="panel">
-        <div class="panel-head"><h2>Category</h2></div>
+        <div class="panel-head"><span class="sec-label">Category</span></div>
         <div class="chips" id="catChips" role="radiogroup" aria-label="Category"></div>
       </div>
 
@@ -95,17 +98,8 @@
     </section>
 
     <!-- GRAB VIDEO -->
-    <section class="view" id="view-grab" aria-labelledby="hGrab">
+    <section class="view" id="view-grab" aria-label="Grab video">
       <div class="grab">
-        <div class="view-head">
-          <div>
-            <p class="eyebrow">Video grabber</p>
-            <h1 id="hGrab" class="h-md">Grab a video from a link</h1>
-            <p class="lede">Paste a link from YouTube, X, Instagram, Facebook, ShareChat — or most news sites — and save it as MP4.</p>
-          </div>
-          <button class="btn btn-ghost" id="grabBack">← Back</button>
-        </div>
-
         <div class="panel">
           <form class="grab-form" id="grabForm" autocomplete="off">
             <input type="url" id="grabUrl" placeholder="https://www.youtube.com/watch?v=…  ·  https://x.com/…/status/…  ·  https://www.instagram.com/reel/…" required />
@@ -116,10 +110,6 @@
           </form>
           <div class="platforms" aria-hidden="true">
             <span style="--c:#FF0033">YouTube</span><span style="--c:#E7E9EA">X</span><span style="--c:#E1306C">Instagram</span><span style="--c:#1877F2">Facebook</span><span style="--c:#FF6F00">ShareChat</span><span style="--c:#8B5CF6">+1,800 sites</span>
-          </div>
-          <div class="own-video">
-            <span class="muted small">or</span>
-            <button class="btn btn-ghost btn-s" id="grabOpenEditor">🎬 Open the video editor</button>
           </div>
           <p class="muted small" id="grabOff" hidden>The video grabber isn't installed on this server — run <code>npm run update-ytdlp</code>.</p>
         </div>
@@ -167,18 +157,11 @@
     </section>
 
     <!-- VIDEO EDITOR -->
-    <section class="view" id="view-edit" aria-labelledby="hEdit">
+    <section class="view" id="view-edit" aria-label="Video editor">
       <div class="ed">
-        <div class="view-head">
-          <div>
-            <p class="eyebrow">Video editor</p>
-            <h1 id="hEdit" class="h-md">Cut clips together, crop &amp; add music</h1>
-          </div>
-          <div class="row gap-s wrap">
-            <label class="btn btn-primary file-btn" id="edAddLabel">＋ Add clips<input type="file" id="edAdd" accept="video/*" multiple /></label>
-            <button class="btn btn-ghost" id="edFromLink">⬇ From a link</button>
-            <button class="btn btn-ghost" id="edBack">← Back</button>
-          </div>
+        <div class="ed-actions">
+          <label class="btn btn-primary btn-s file-btn" id="edAddLabel">＋ Add clips<input type="file" id="edAdd" accept="video/*" multiple /></label>
+          <button class="btn btn-ghost btn-s" id="edFromLink">⬇ From a link</button>
         </div>
 
         <div class="ed-main">
@@ -303,12 +286,9 @@
     </section>
 
     <!-- STEP 2 -->
-    <section class="view" id="view-2" aria-labelledby="h2">
+    <section class="view" id="view-2" aria-label="Stories">
       <div class="view-head">
-        <div>
-          <p class="eyebrow" id="storiesEyebrow">Stories</p>
-          <h1 id="h2" class="h-md">Pick a story to design</h1>
-        </div>
+        <p class="eyebrow" id="storiesEyebrow">Stories</p>
         <div class="row gap-s">
           <button class="btn btn-ghost" id="backTo1">← Sources</button>
           <button class="btn btn-ghost" id="refreshBtn">↻ Refresh</button>
