@@ -19,3 +19,5 @@ services:
         sync: false
       - key: X_BEARER_TOKEN
         sync: false
+      - key: YTDLP_COOKIES
+        sync: false

@@ -28,6 +28,7 @@ npm start                 # http://localhost:3000
 - **Studio**: 1080×1080 canvas, 4 layouts (Spotlight, Split, Frame, Bold), 6 accent colours, 5 headline fonts (incl. Catamaran for bold Tamil), drag to reposition, scroll/pinch/slider to zoom, “fit whole image” with blurred backdrop, shade control, alternate article images, upload or paste your own. Wrap words in `*stars*` to highlight them.
 - **Downloads**: JPG / PNG, animated MP4 reel (5–15 s, zoom + word-by-word headline reveal), and the source article's video when it exposes a direct file.
 - **Music for reels**: 13 built-in tracks — *News tones* (Breaking News, Flash News, Top Headlines, Countdown Clock, Bulletin Intro, Urgent Alert) and *Background beds* (Tamil Mass Beat, Breaking Pulse, Headline Rise, Morning Brief, Lo-fi Desk, Tech Wave, Desi Beat) — or upload your own; preview, volume and start point; fades in/out and is baked into the MP4 and the Instagram Reel. The built-in tracks are composed from scratch by `scripts/compose-music.py` (pure synthesis — no samples), so they're free to use anywhere.
+- **Video grabber** (⬇ *Grab video* in the top bar): paste a link from YouTube, X, Instagram, Facebook, ShareChat or 1,800+ other sites → preview → pick Best / 1080p / 720p / 480p / MP3 → download, post it to Instagram as a Reel (auto-converted to H.264/AAC), or turn it into a news card. Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp), downloaded automatically on `npm install`; run `npm run update-ytdlp` whenever a site stops working. Only reuse videos you have permission to — credit the creator.
 - **Instagram**: publishes images or Reels via the official Content Publishing API.
 
 ## Instagram setup
@@ -49,6 +50,12 @@ Testing locally? Run a tunnel (`ngrok http 3000`) and put the tunnel URL in `PUB
 4. On your phone, open that address and use **Add to Home Screen** for an app-like icon.
 
 Free instances sleep when idle, so the first request after a pause is slow. Rendered media is kept for 24 h in `media/`.
+
+## Video grabber tips
+
+- **YouTube on Render:** YouTube often blocks cloud servers ("confirm you're not a bot"). Downloads from Newsgram running on your own computer work far more reliably.
+- **Instagram / private posts:** many Instagram links need a logged-in session. Export your browser cookies in Netscape format (e.g. the *Get cookies.txt LOCALLY* extension) and paste the file's contents into the `YTDLP_COOKIES` environment variable (or point `YTDLP_COOKIES_FILE` at the file). Use a spare account — the cookies act as your login.
+- Downloads are capped at 500 MB and kept for 24 h.
 
 ## Optional: X (Twitter) posts
 

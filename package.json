@@ -7,7 +7,9 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "mock": "MOCK=1 node server/index.js",
-    "check-feeds": "node scripts/check-feeds.js"
+    "check-feeds": "node scripts/check-feeds.js",
+    "postinstall": "node scripts/get-yt-dlp.js",
+    "update-ytdlp": "node scripts/get-yt-dlp.js --force"
   },
   "license": "MIT",
   "dependencies": {

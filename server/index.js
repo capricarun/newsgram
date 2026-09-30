@@ -13,6 +13,7 @@ import { rephraseBatch, rephraseArticle, aiEnabled } from './ai.js';
 import { publishToInstagram, igEnabled } from './instagram.js';
 import { assertPublicUrl, fetchWithTimeout } from './util.js';
 import { mockImageSvg } from './mock.js';
+import { grabInfo, startGrab, grabJob, ytdlpPath, ytdlpVersion } from './grab.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -60,7 +61,7 @@ app.get('/api/config', (req, res) => {
   res.json({
     sources: SOURCES.map(({ id, name, color, x, domain, group, lang, only }) => ({ id, name, color, x, domain, group, lang, only: only || null })),
     categories: CATEGORIES.map(({ id, label }) => ({ id, label })),
-    features: { ai: aiEnabled(), instagram: igEnabled(), x: Boolean(process.env.X_BEARER_TOKEN), transcode: Boolean(ffmpegPath), mock: isMock() },
+    features: { ai: aiEnabled(), instagram: igEnabled(), x: Boolean(process.env.X_BEARER_TOKEN), transcode: Boolean(ffmpegPath), grab: Boolean(ytdlpPath()), mock: isMock() },
     handle: process.env.BRAND_HANDLE || '',
   });
 });
@@ -146,7 +147,10 @@ app.post('/api/media', express.raw({ type: ['image/*', 'video/*'], limit: '150mb
 function transcode(input, output, hasAudio = false) {
   return new Promise((resolve, reject) => {
     // Instagram wants H.264 + AAC; add a silent track when the reel has no music.
-    const audioIn = hasAudio ? ['-map', '0:v:0', '-map', '0:a:0'] : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-map', '0:v:0', '-map', '1:a:0', '-shortest'];
+    const audioIn =
+      hasAudio === 'optional' ? ['-map', '0:v:0', '-map', '0:a:0?', '-vf', 'scale=trunc(min(iw\\,1920)/2)*2:-2']
+      : hasAudio ? ['-map', '0:v:0', '-map', '0:a:0']
+      : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-map', '0:v:0', '-map', '1:a:0', '-shortest'];
     const args = ['-y', '-i', input, ...audioIn,
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', '30', '-b:v', '5M', '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-movflags', '+faststart', output];
     const p = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -165,10 +169,44 @@ function cleanupMedia() {
   }
 }
 
+/* ---------- paste-a-link video grabber ---------- */
+app.post('/api/grab/info', wrap(async (req, res) => {
+  res.json(await grabInfo(String(req.body?.url || '').trim()));
+}));
+
+app.post('/api/grab/start', wrap(async (req, res) => {
+  const { url, quality = 'best' } = req.body || {};
+  const job = await startGrab(String(url || '').trim(), String(quality), MEDIA_DIR, ffmpegPath);
+  cleanupMedia();
+  res.json({ id: job.id });
+}));
+
+app.get('/api/grab/:id', (req, res) => {
+  const j = grabJob(req.params.id);
+  if (!j) return res.status(404).json({ error: 'Unknown or expired download' });
+  res.json({ id: j.id, status: j.status, stage: j.stage, progress: j.progress, error: j.error, file: j.file, size: j.size || null });
+});
+
+app.get('/api/grab/:id/file', (req, res) => {
+  const j = grabJob(req.params.id);
+  if (!j?.file) return res.status(404).json({ error: 'Not ready' });
+  const ext = path.extname(j.file);
+  const name = (String(req.query.name || 'video').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'video') + ext;
+  res.download(path.join(MEDIA_DIR, j.file), name);
+});
+
 app.post('/api/instagram/publish', wrap(async (req, res) => {
-  const { name, kind, caption = '' } = req.body || {};
-  if (!name || !fs.existsSync(path.join(MEDIA_DIR, path.basename(name)))) return res.status(400).json({ error: 'Upload the media first' });
-  const mediaUrl = `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/media/${path.basename(name)}`;
+  const { kind, caption = '' } = req.body || {};
+  let name = path.basename(String(req.body?.name || ''));
+  if (!name || !fs.existsSync(path.join(MEDIA_DIR, name))) return res.status(400).json({ error: 'Upload the media first' });
+  // Grabbed videos can be VP9/AV1/odd sizes — convert to Instagram's H.264/AAC first.
+  if (kind === 'video' && name.startsWith('grab-')) {
+    if (!ffmpegPath) throw new Error('ffmpeg is needed to prepare this video for Instagram.');
+    const out = name.replace(/\.\w+$/, '-ig.mp4');
+    if (!fs.existsSync(path.join(MEDIA_DIR, out))) await transcode(path.join(MEDIA_DIR, name), path.join(MEDIA_DIR, out), 'optional');
+    name = out;
+  }
+  const mediaUrl = `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/media/${name}`;
   res.json(await publishToInstagram({ kind, mediaUrl, caption: caption.slice(0, 2200) }));
 }));
 
@@ -186,6 +224,7 @@ function start(port, triesLeft) {
       process.exit(1);
     }
     console.log(`\n  Newsgram running → http://localhost:${port}`);
+    if (!ytdlpPath()) console.log('  Video grabber: off (run npm run update-ytdlp)');
     console.log(`  AI rephrase: ${aiEnabled() ? 'on' : 'off (set ANTHROPIC_API_KEY)'} · Instagram: ${igEnabled() ? 'on' : 'off'} · X: ${process.env.X_BEARER_TOKEN ? 'on' : 'off'} · ffmpeg: ${ffmpegPath ? 'yes' : 'no'}${isMock() ? ' · MOCK DATA' : ''}\n`);
   });
 }

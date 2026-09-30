@@ -171,6 +171,7 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
   padding: 10px 16px; border-radius: 12px; border: 1px solid transparent; font-weight: 600; font-size: 14px;
   transition: transform 0.12s, background 0.15s, border-color 0.15s, opacity 0.15s; white-space: nowrap;
 }
+a.btn { text-decoration: none; }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 .btn-primary { background: var(--accent); color: var(--accent-ink); box-shadow: 0 8px 28px rgba(198, 255, 61, 0.18); }
@@ -335,6 +336,31 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .eq i:nth-child(3) { animation-delay: -0.55s; }
 @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
 
+/* ---------- video grabber ---------- */
+.top-right { display: flex; align-items: center; gap: 10px; }
+.grab-nav span[aria-hidden] { font-size: 15px; }
+.grab { max-width: 880px; margin: 0 auto; }
+.grab .lede { margin-top: 6px; }
+.grab-form { display: flex; gap: 10px; flex-wrap: wrap; }
+.grab-form input { flex: 1 1 320px; font-size: 15px; padding: 14px 16px; }
+.platforms { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.platforms span { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c); background: color-mix(in srgb, var(--c) 10%, transparent); }
+.grab-result { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.grab-media { position: relative; border-radius: var(--radius-s); overflow: hidden; background: var(--surface-3); aspect-ratio: 16 / 9; }
+.grab-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.grab-media .badge { position: absolute; top: 10px; left: 10px; }
+.grab-media .badge.dur { left: auto; right: 10px; top: auto; bottom: 10px; }
+.grab-info h2 { font-size: 18px; line-height: 1.3; margin-bottom: 4px; }
+.grab-info .chips { gap: 6px; }
+.grab-info .chip { padding: 7px 12px; font-size: 13px; }
+.progress { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.progress .bar { height: 10px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.progress .bar i { display: block; height: 100%; width: 0; background: var(--grad); transition: width 0.3s; }
+.grab-done { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.grab-done .ok { margin: 0; color: var(--accent); font-weight: 700; }
+.grab-done textarea { margin-bottom: 10px; }
+.rights { text-align: center; margin-top: 4px; }
+
 /* ---------- toast & modal ---------- */
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
@@ -356,8 +382,10 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
   .canvas-wrap { max-width: 560px; }
 }
 @media (max-width: 720px) {
-  .topbar { grid-template-columns: auto 1fr; }
+  .topbar { grid-template-columns: auto 1fr auto; }
   .flags { display: none; }
+  .grab-nav-label { display: none; }
+  .grab-result { grid-template-columns: 1fr; }
   .stepper { justify-content: flex-end; gap: 4px; }
   .stepper i { width: 8px; }
   .step { font-size: 0; padding: 4px; gap: 0; }

@@ -3,7 +3,7 @@
 // (PUBLIC_BASE_URL) — that's why posting only works once the app is deployed or tunnelled.
 
 const host = () => process.env.IG_GRAPH_HOST || 'graph.facebook.com';
-const ver = () => process.env.IG_GRAPH_VERSION || 'v21.0';
+const ver = () => process.env.IG_GRAPH_VERSION || 'v25.0';
 
 export const igEnabled = () => Boolean(process.env.IG_USER_ID && process.env.IG_ACCESS_TOKEN && process.env.PUBLIC_BASE_URL);
 

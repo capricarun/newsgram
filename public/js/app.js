@@ -920,6 +920,192 @@ async function postToInstagram(kind) {
 $('#igImage').addEventListener('click', () => postToInstagram('image'));
 $('#igReel').addEventListener('click', () => postToInstagram('video'));
 
+
+/* ---------------- video grabber ---------------- */
+const grab = { info: null, quality: 'best', job: null, timer: null, from: 1 };
+const PLATFORM_COLORS = { YouTube: '#FF0033', X: '#E7E9EA', Instagram: '#E1306C', Facebook: '#1877F2', ShareChat: '#FF6F00' };
+
+function fmtDur(s) {
+  if (!s) return '';
+  s = Math.round(s);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+const fmtSize = (b) => (b ? (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`) : '');
+
+function openGrab(prefill = '') {
+  const active = $('.view.is-active')?.id?.replace('view-', '');
+  if (active && active !== 'grab') grab.from = active;
+  go('grab');
+  $('#grabOff').hidden = state.config.features.grab;
+  if (prefill) $('#grabUrl').value = prefill;
+  setTimeout(() => $('#grabUrl').focus(), 50);
+}
+$('#grabNav').addEventListener('click', () => openGrab());
+$('#grabBack').addEventListener('click', () => go(isNaN(Number(grab.from)) ? 1 : Number(grab.from)));
+
+$('#grabPaste').addEventListener('click', async () => {
+  try {
+    const t = (await navigator.clipboard.readText()).trim();
+    if (t) {
+      $('#grabUrl').value = t;
+      $('#grabForm').requestSubmit();
+    }
+  } catch {
+    toast('Clipboard blocked — long-press the box and paste instead.', { error: true });
+    $('#grabUrl').focus();
+  }
+});
+
+$('#grabForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const url = $('#grabUrl').value.trim().match(/https?:\/\/\S+/)?.[0];
+  if (!url) return toast('Paste a link that starts with https://', { error: true });
+  const btn = $('#grabFetch');
+  busy(btn, true);
+  clearInterval(grab.timer);
+  $('#grabResult').hidden = true;
+  try {
+    grab.info = await api('/api/grab/info', { method: 'POST', body: JSON.stringify({ url }) });
+    renderGrabInfo();
+  } catch (err) {
+    toast(err.message, { error: true, ms: 9000 });
+  } finally {
+    busy(btn, false);
+  }
+});
+
+function renderGrabInfo() {
+  const i = grab.info;
+  $('#grabResult').hidden = false;
+  $('#grabThumb').src = i.thumbnail ? proxied(i.thumbnail) : '';
+  $('#grabThumb').hidden = !i.thumbnail;
+  $('#grabPlatform').innerHTML = `<span class="d" style="--c:${PLATFORM_COLORS[i.platform] || '#8B5CF6'}"></span>${esc(i.platform)}`;
+  $('#grabDur').textContent = fmtDur(i.duration);
+  $('#grabDur').hidden = !i.duration;
+  $('#grabTitle').textContent = i.title;
+  $('#grabUploader').textContent = [i.uploader, i.height ? `${i.height}p source` : '', i.filesize ? `~${fmtSize(i.filesize)}` : ''].filter(Boolean).join(' · ');
+  const opts = [{ id: 'best', label: 'Best' }];
+  for (const h of [1080, 720, 480]) if (!i.heights.length || i.heights.some((x) => x >= h)) opts.push({ id: String(h), label: `${h}p` });
+  opts.push({ id: 'audio', label: 'Audio (MP3)' });
+  grab.quality = i.heights.some((x) => x > 1080) ? '1080' : 'best';
+  $('#grabQuality').innerHTML = opts.map((o) => `<button class="chip" role="radio" data-q="${o.id}" aria-checked="${o.id === grab.quality}">${o.label}</button>`).join('');
+  $$('#grabQuality .chip').forEach((b) =>
+    b.addEventListener('click', () => {
+      grab.quality = b.dataset.q;
+      $$('#grabQuality .chip').forEach((x) => x.setAttribute('aria-checked', x === b));
+      $('#grabGo').textContent = grab.quality === 'audio' ? '⬇ Download MP3' : '⬇ Download MP4';
+    }),
+  );
+  $('#grabGo').textContent = '⬇ Download MP4';
+  $('#grabGo').disabled = false;
+  $('#grabGo').hidden = false;
+  $('#grabProgress').hidden = true;
+  $('#grabDone').hidden = true;
+  $('#grabCaption').value = `${i.title}\n\n🎥 Credit: ${i.uploader || i.platform} (${i.platform})\n\n#news #viral #trending`;
+}
+
+$('#grabGo').addEventListener('click', async () => {
+  const btn = $('#grabGo');
+  btn.disabled = true;
+  $('#grabProgress').hidden = false;
+  $('#grabDone').hidden = true;
+  $('#grabBar').style.width = '2%';
+  $('#grabStage').textContent = 'Starting…';
+  try {
+    const { id } = await api('/api/grab/start', { method: 'POST', body: JSON.stringify({ url: grab.info.url, quality: grab.quality }) });
+    grab.job = { id };
+    clearInterval(grab.timer);
+    grab.timer = setInterval(() => pollGrab(id), 1000);
+  } catch (e) {
+    toast(e.message, { error: true, ms: 9000 });
+    btn.disabled = false;
+    $('#grabProgress').hidden = true;
+  }
+});
+
+async function pollGrab(id) {
+  let j;
+  try {
+    j = await api(`/api/grab/${id}`);
+  } catch (e) {
+    clearInterval(grab.timer);
+    return toast(e.message, { error: true });
+  }
+  $('#grabBar').style.width = `${Math.max(2, j.progress)}%`;
+  $('#grabStage').textContent = j.stage === 'processing' ? 'Converting to MP4…' : j.stage === 'downloading' ? `Downloading… ${Math.round(j.progress)}%` : 'Starting…';
+  if (j.status === 'running') return;
+  clearInterval(grab.timer);
+  $('#grabGo').disabled = false;
+  if (j.status === 'error') {
+    $('#grabProgress').hidden = true;
+    return toast(j.error || 'Download failed', { error: true, ms: 10000 });
+  }
+  grab.job = j;
+  $('#grabProgress').hidden = true;
+  $('#grabGo').hidden = true;
+  $('#grabDone').hidden = false;
+  $('#grabSize').textContent = `· ${fmtSize(j.size)}`;
+  const href = `/api/grab/${id}/file?name=${encodeURIComponent(slug(grab.info.title))}`;
+  $('#grabSave').href = href;
+  const isAudio = /\.mp3$/i.test(j.file || '');
+  $('#grabIgBlock').hidden = isAudio;
+  // Start the save straight away.
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+$('#grabToStudio').addEventListener('click', () => {
+  const i = grab.info;
+  openStudio({
+    id: `grab-${grab.job?.id || Date.now()}`,
+    kind: 'rss',
+    via: 'grab',
+    sourceId: 'grab',
+    sourceName: i.uploader ? `${i.uploader} · ${i.platform}` : i.platform,
+    sourceColor: PLATFORM_COLORS[i.platform] || '#8B5CF6',
+    category: state.category,
+    title: i.title,
+    summary: i.description || '',
+    link: i.url,
+    image: i.thumbnail || '',
+    video: '',
+    published: new Date().toISOString(),
+  });
+});
+
+$('#grabIg').addEventListener('click', async () => {
+  if (!state.config.features.instagram) return $('#igSetup').showModal();
+  const btn = $('#grabIg');
+  const caption = $('#grabCaption').value.trim();
+  if (!caption) return toast('Add a caption first.', { error: true });
+  busy(btn, true);
+  toast('Preparing the video for Instagram… this can take a minute.', { ms: 90000 });
+  try {
+    const out = await api('/api/instagram/publish', { method: 'POST', body: JSON.stringify({ name: grab.job.file, kind: 'video', caption }) });
+    toast(out.permalink ? `Posted! <a href="${esc(out.permalink)}" target="_blank" rel="noopener">View on Instagram ↗</a>` : 'Posted to Instagram!', { html: true, ms: 8000 });
+  } catch (e) {
+    toast(`Instagram: ${e.message}`, { error: true, ms: 9000 });
+  } finally {
+    busy(btn, false);
+  }
+});
+
+// Links shared to the app (e.g. /?grab=https://…) open straight in the grabber.
+function checkGrabParam() {
+  const u = new URLSearchParams(location.search).get('grab');
+  if (u) {
+    openGrab(u);
+    $('#grabForm').requestSubmit();
+  }
+}
+
 /* ---------------- boot ---------------- */
 async function boot() {
   try {
@@ -944,5 +1130,6 @@ async function boot() {
   if (!pickMime().includes('mp4') && !f.transcode) $('#dlReel').textContent = '⬇ Record & download WebM';
   renderSources();
   loadCatalog().then(updateMusicNote);
+  checkGrabParam();
 }
 boot();

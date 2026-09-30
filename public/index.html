@@ -29,7 +29,10 @@
       <i></i>
       <button class="step" data-step="3" disabled><span>3</span>Studio</button>
     </nav>
-    <div class="flags" id="flags"></div>
+    <div class="top-right">
+      <button class="btn btn-ghost btn-s grab-nav" id="grabNav" aria-label="Grab a video from a link"><span aria-hidden="true">⬇</span><span class="grab-nav-label">Grab video</span></button>
+      <div class="flags" id="flags"></div>
+    </div>
   </header>
 
   <main>
@@ -87,6 +90,68 @@
       <div class="cta-bar">
         <p id="pickSummary">Pick at least one source</p>
         <button class="btn btn-primary btn-lg" id="fetchBtn" disabled>Fetch stories <span aria-hidden="true">→</span></button>
+      </div>
+    </section>
+
+    <!-- GRAB VIDEO -->
+    <section class="view" id="view-grab" aria-labelledby="hGrab">
+      <div class="grab">
+        <div class="view-head">
+          <div>
+            <p class="eyebrow">Video grabber</p>
+            <h1 id="hGrab" class="h-md">Grab a video from a link</h1>
+            <p class="lede">Paste a link from YouTube, X, Instagram, Facebook, ShareChat — or most news sites — and save it as MP4.</p>
+          </div>
+          <button class="btn btn-ghost" id="grabBack">← Back</button>
+        </div>
+
+        <div class="panel">
+          <form class="grab-form" id="grabForm" autocomplete="off">
+            <input type="url" id="grabUrl" placeholder="https://www.youtube.com/watch?v=…  ·  https://x.com/…/status/…  ·  https://www.instagram.com/reel/…" required />
+            <div class="row gap-s">
+              <button type="button" class="btn btn-ghost" id="grabPaste">Paste</button>
+              <button type="submit" class="btn btn-primary" id="grabFetch">Fetch video</button>
+            </div>
+          </form>
+          <div class="platforms" aria-hidden="true">
+            <span style="--c:#FF0033">YouTube</span><span style="--c:#E7E9EA">X</span><span style="--c:#E1306C">Instagram</span><span style="--c:#1877F2">Facebook</span><span style="--c:#FF6F00">ShareChat</span><span style="--c:#8B5CF6">+1,800 sites</span>
+          </div>
+          <p class="muted small" id="grabOff" hidden>The video grabber isn't installed on this server — run <code>npm run update-ytdlp</code>.</p>
+        </div>
+
+        <div class="panel grab-result" id="grabResult" hidden>
+          <div class="grab-media">
+            <img id="grabThumb" alt="" />
+            <span class="badge" id="grabPlatform"></span>
+            <span class="badge dur" id="grabDur"></span>
+          </div>
+          <div class="grab-info">
+            <h2 id="grabTitle"></h2>
+            <p class="muted small" id="grabUploader"></p>
+            <div class="field">
+              <span>Quality</span>
+              <div class="chips" id="grabQuality" role="radiogroup" aria-label="Quality"></div>
+            </div>
+            <button class="btn btn-primary btn-lg" id="grabGo">⬇ Download MP4</button>
+            <div class="progress" id="grabProgress" hidden>
+              <div class="bar"><i id="grabBar"></i></div>
+              <span class="small muted" id="grabStage">Starting…</span>
+            </div>
+            <div class="grab-done" id="grabDone" hidden>
+              <p class="ok">✓ Saved <span id="grabSize"></span></p>
+              <div class="row gap-s wrap">
+                <a class="btn btn-ghost" id="grabSave" download>⬇ Save again</a>
+                <button class="btn btn-ghost" id="grabToStudio">✦ Make a news card from this</button>
+              </div>
+              <div class="export-block ig" id="grabIgBlock">
+                <h3><span class="ig-mark"></span>Post to Instagram as a Reel</h3>
+                <textarea id="grabCaption" rows="4" maxlength="2200"></textarea>
+                <button class="btn btn-ig" id="grabIg">Post Reel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="muted small rights">Only download videos you have permission to reuse, and credit the original creator. Some platforms need a logged-in session for private or age-restricted posts.</p>
       </div>
     </section>
 
