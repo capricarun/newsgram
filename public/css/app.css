@@ -323,6 +323,10 @@ a.btn { text-decoration: none; }
 /* ---------- music ---------- */
 .music-intro { margin: 0 0 12px; }
 .mtrack-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.mfilter { gap: 6px; margin-bottom: 10px; }
+.mfilter .chip { padding: 6px 11px; font-size: 12.5px; }
+.mfilter .chip .muted { font-size: 11px; opacity: 0.7; }
+.mfilter .chip[aria-checked='true'] .muted { color: inherit; }
 .mgroup { font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 10px 2px 2px; }
 .mtrack {
   display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 10px;

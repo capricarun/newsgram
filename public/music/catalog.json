@@ -54,6 +54,177 @@
     "duration": 30.0
   },
   {
+    "id": "prime-time",
+    "title": "Prime Time",
+    "mood": "Orchestral news theme",
+    "bpm": 120,
+    "group": "News tones",
+    "file": "/music/prime-time.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "newsroom-ticker",
+    "title": "Newsroom Ticker",
+    "mood": "Teleprinter + pulse",
+    "bpm": 108,
+    "group": "News tones",
+    "file": "/music/newsroom-ticker.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "election-night",
+    "title": "Election Night",
+    "mood": "Snare march + brass",
+    "bpm": 112,
+    "group": "News tones",
+    "file": "/music/election-night.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "live-update",
+    "title": "Live Update",
+    "mood": "Electronic \u00b7 glitch",
+    "bpm": 124,
+    "group": "News tones",
+    "file": "/music/live-update.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "market-watch",
+    "title": "Market Watch",
+    "mood": "Business \u00b7 piano pulse",
+    "bpm": 110,
+    "group": "News tones",
+    "file": "/music/market-watch.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "sports-desk",
+    "title": "Sports Desk",
+    "mood": "Stadium stomp + brass",
+    "bpm": 132,
+    "group": "News tones",
+    "file": "/music/sports-desk.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "investigation",
+    "title": "Investigation",
+    "mood": "Dark \u00b7 crime explainer",
+    "bpm": 84,
+    "group": "News tones",
+    "file": "/music/investigation.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "evening-bulletin",
+    "title": "Evening Bulletin",
+    "mood": "Warm \u00b7 classic Indian",
+    "bpm": 96,
+    "group": "News tones",
+    "file": "/music/evening-bulletin.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "phonk-drift",
+    "title": "Phonk Drift",
+    "mood": "Cowbell \u00b7 808 \u00b7 car edits",
+    "bpm": 130,
+    "group": "Trending reels",
+    "file": "/music/phonk-drift.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "drill-slide",
+    "title": "Drill Slide",
+    "mood": "Dark \u00b7 sliding 808",
+    "bpm": 142,
+    "group": "Trending reels",
+    "file": "/music/drill-slide.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "trap-hype",
+    "title": "Trap Hype",
+    "mood": "Hats rolls \u00b7 big 808",
+    "bpm": 140,
+    "group": "Trending reels",
+    "file": "/music/trap-hype.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "edm-drop",
+    "title": "EDM Drop",
+    "mood": "Build-up \u00b7 drop at 7s",
+    "bpm": 128,
+    "group": "Trending reels",
+    "file": "/music/edm-drop.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "bhangra-bounce",
+    "title": "Bhangra Bounce",
+    "mood": "Dhol + tumbi",
+    "bpm": 100,
+    "group": "Trending reels",
+    "file": "/music/bhangra-bounce.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "kuthu-remix",
+    "title": "Kuthu Remix",
+    "mood": "Thappu + EDM",
+    "bpm": 128,
+    "group": "Trending reels",
+    "file": "/music/kuthu-remix.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "amapiano-log",
+    "title": "Amapiano Log",
+    "mood": "Log drums \u00b7 groove",
+    "bpm": 113,
+    "group": "Trending reels",
+    "file": "/music/amapiano-log.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "funk-brazil",
+    "title": "Funk Brazil",
+    "mood": "Montagem \u00b7 hard bass",
+    "bpm": 130,
+    "group": "Trending reels",
+    "file": "/music/funk-brazil.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "jersey-club",
+    "title": "Jersey Club",
+    "mood": "Bouncy kicks \u00b7 squeaks",
+    "bpm": 140,
+    "group": "Trending reels",
+    "file": "/music/jersey-club.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "afro-bounce",
+    "title": "Afro Bounce",
+    "mood": "Afrobeats \u00b7 feel-good",
+    "bpm": 104,
+    "group": "Trending reels",
+    "file": "/music/afro-bounce.mp3",
+    "duration": 30.0
+  },
+  {
+    "id": "slowed-reverb",
+    "title": "Slowed + Reverb",
+    "mood": "Sad \u00b7 emotional edits",
+    "bpm": 72,
+    "group": "Trending reels",
+    "file": "/music/slowed-reverb.mp3",
+    "duration": 30.0
+  },
+  {
     "id": "tamil-mass",
     "title": "Tamil Mass Beat",
     "mood": "Parai + nadhaswaram",

@@ -850,7 +850,9 @@ const music = {
   custom: null, // { name, url }
   buffers: new Map(),
   preview: null, // { id, audio }
+  filter: store.get('musicFilter', 'all'),
 };
+const MUSIC_GROUPS = ['News tones', 'Trending reels', 'Background beds'];
 
 async function loadCatalog() {
   try {
@@ -861,6 +863,7 @@ async function loadCatalog() {
   if (music.id !== 'none' && !music.catalog.some((t) => t.id === music.id)) music.id = 'none';
   $('#musicVol').value = music.volume;
   $('#mvolOut').textContent = `${music.volume}%`;
+  renderMusicFilter();
   renderTracks();
 }
 
@@ -870,9 +873,28 @@ function trackRows() {
   return rows;
 }
 
+function renderMusicFilter() {
+  const groups = MUSIC_GROUPS.filter((g) => music.catalog.some((t) => (t.group || 'Background beds') === g));
+  if (music.filter !== 'all' && !groups.includes(music.filter)) music.filter = 'all';
+  const count = (g) => music.catalog.filter((t) => g === 'all' || (t.group || 'Background beds') === g).length;
+  $('#musicFilter').innerHTML = ['all', ...groups]
+    .map((g) => `<button class="chip" role="radio" data-g="${esc(g)}" aria-checked="${g === music.filter}">${g === 'all' ? 'All' : esc(g)} <span class="muted">${count(g)}</span></button>`)
+    .join('');
+  $$('#musicFilter .chip').forEach((c) =>
+    c.addEventListener('click', () => {
+      music.filter = c.dataset.g;
+      store.set('musicFilter', music.filter);
+      renderMusicFilter();
+      renderTracks();
+    }),
+  );
+}
+
 function renderTracks() {
   let lastGroup = null;
+  const shown = (t) => music.filter === 'all' || t.id === 'none' || t.id === 'custom' || t.id === music.id || (t.group || 'Background beds') === music.filter;
   $('#trackList').innerHTML = trackRows()
+    .filter(shown)
     .map((t) => {
       const playing = music.preview?.id === t.id;
       const group = t.id === 'none' ? null : t.id === 'custom' ? 'Your upload' : t.group || 'Background beds';
