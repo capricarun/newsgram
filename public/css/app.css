@@ -175,6 +175,32 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
 .check input { accent-color: var(--accent); width: 16px; height: 16px; }
 
+/* ---------- start switch + own story ---------- */
+.start-switch { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-2); }
+.ss { border: 0; background: transparent; color: var(--muted); font: 600 14px var(--ui); padding: 9px 16px; border-radius: 10px; cursor: pointer; }
+.ss:hover { color: var(--text); }
+.ss.is-active { background: var(--surface-3); color: var(--text); }
+.own-grid { display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.own-media { display: flex; flex-direction: column; gap: 10px; }
+.drop {
+  position: relative; aspect-ratio: 1 / 1; border-radius: var(--radius-s); border: 1.5px dashed var(--line-2);
+  background: var(--surface-2); display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.drop:hover, .drop:focus-visible, .drop.is-over { border-color: var(--accent); background: rgba(198,255,61,0.06); outline: none; }
+.drop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.drop.has-img { border-style: solid; }
+.drop.has-img .drop-hint { display: none; }
+.drop-hint { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 16px; }
+.own-img-actions .input { flex: 1; }
+.own-copy .field:last-child { margin-bottom: 0; }
+@media (max-width: 760px) {
+  .own-grid { grid-template-columns: 1fr; }
+  .drop { aspect-ratio: 4 / 3; }
+  .start-switch { display: flex; }
+  .ss { flex: 1; padding: 9px 8px; font-size: 13px; }
+}
+
 /* ---------- buttons ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;

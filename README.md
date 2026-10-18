@@ -4,6 +4,8 @@ Turn the latest stories from India's big newsrooms into AI-rephrased, 1:1 Instag
 
 **Two workspaces** (switch at the top): **🖼 Image** — Sources → Stories → Studio for news cards; **🎬 Video** — *Grab video* and *Editor*.
 
+**Your own story:** on the Sources screen switch to *✎ Your own story* → upload, drop or paste an image (or a link) → type or paste your copy (headline optional, credit optional) → *✦ Rephrase with AI* rewrites it into a headline, body and caption using only the facts you gave, or *Use my copy as-is* → same studio, downloads and Instagram posting.
+
 **Image flow:** pick sources + a category → the app pulls fresh stories and rewrites the headlines with AI → open one in the studio → edit copy, reposition/zoom the image, pick a layout → download JPG/PNG, record an MP4 reel, grab the story's own video, or publish straight to Instagram.
 
 | Sources (preset) | Categories |

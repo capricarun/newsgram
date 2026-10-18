@@ -85,8 +85,12 @@ app.post('/api/ai/headlines', wrap(async (req, res) => {
 
 app.post('/api/ai/rephrase', wrap(async (req, res) => {
   const { url, title, summary, sourceName, tone, lang, handle } = req.body || {};
-  let text = '';
-  if (url && !/^\//.test(url)) {
+  // "Your own story": the user's pasted copy is the source text.
+  const own = typeof req.body?.text === 'string' ? req.body.text.trim().slice(0, 12000) : '';
+  let text = own;
+  if (own) {
+    // nothing to fetch
+  } else if (url && !/^\//.test(url)) {
     try {
       text = (await getArticle(url)).text;
     } catch (e) {
@@ -95,7 +99,7 @@ app.post('/api/ai/rephrase', wrap(async (req, res) => {
   } else if (isMock()) {
     text = (await getArticle(url || '')).text;
   }
-  res.json({ ...(await rephraseArticle({ title, summary, text, sourceName, tone, lang, handle })), usedArticle: Boolean(text) });
+  res.json({ ...(await rephraseArticle({ title, summary, text, sourceName, tone, lang, handle, own: Boolean(own) })), usedArticle: Boolean(text) });
 }));
 
 // Same-origin image proxy so the canvas isn't tainted by cross-origin images.

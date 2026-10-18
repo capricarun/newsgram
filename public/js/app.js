@@ -186,7 +186,7 @@ function go(step) {
     b.classList.toggle('is-active', n === step);
     b.classList.toggle('is-done', n < step);
   });
-  if (step >= 2) $('.step[data-step="2"]').disabled = false;
+  if (step === 2 || (step > 2 && state.news)) $('.step[data-step="2"]').disabled = false;
   if (step === 3) $('.step[data-step="3"]').disabled = false;
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -249,6 +249,9 @@ function renderSources() {
   $('#xNote').className = 'muted';
   x.addEventListener('change', () => (state.includeX = x.checked));
 
+  $('#ownCat').innerHTML = categories.map((c) => `<option value="${c.id}">${esc(c.label)}</option>`).join('');
+  $('#ownCat').value = state.category;
+
   $('#tone').value = state.tone;
   $('#lang').value = state.lang;
   $('#tone').addEventListener('change', (e) => (state.tone = e.target.value));
@@ -290,7 +293,116 @@ $('#selNone').addEventListener('click', () => {
 $('#fetchBtn').addEventListener('click', () => loadNews());
 $('#refreshBtn').addEventListener('click', () => loadNews());
 $('#backTo1').addEventListener('click', () => go(1));
-$('#backTo2').addEventListener('click', () => go(2));
+$('#backTo2').addEventListener('click', () => go(state.item?.kind === 'own' ? 1 : 2));
+
+/* ---------------- step 1b: your own story ---------------- */
+const own = { image: '' };
+function setStart(which) {
+  $$('.ss').forEach((b) => {
+    b.classList.toggle('is-active', b.dataset.start === which);
+    b.setAttribute('aria-selected', b.dataset.start === which);
+  });
+  $$('[data-start-pane]').forEach((p) => (p.hidden = p.dataset.startPane !== which));
+  store.set('start', which);
+}
+$$('.ss').forEach((b) => b.addEventListener('click', () => setStart(b.dataset.start)));
+setStart(store.get('start', 'channels') === 'own' ? 'own' : 'channels');
+
+function setOwnImage(src) {
+  own.image = src || '';
+  const img = $('#ownPreview');
+  img.hidden = !own.image;
+  if (own.image) img.src = proxied(own.image);
+  else img.removeAttribute('src');
+  $('#ownDrop').classList.toggle('has-img', !!own.image);
+  $('#ownImgClear').hidden = !own.image;
+}
+$('#ownPreview').addEventListener('error', () => {
+  if (!own.image) return;
+  toast("Couldn't load that image — try another or upload one.", { error: true });
+  setOwnImage('');
+});
+function readOwnFile(f) {
+  if (!f || !/^image\//.test(f.type)) return toast('That file isn\'t an image.', { error: true });
+  const r = new FileReader();
+  r.onload = () => setOwnImage(r.result);
+  r.readAsDataURL(f);
+}
+const drop = $('#ownDrop');
+drop.addEventListener('click', () => $('#ownFile').click());
+drop.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), $('#ownFile').click()));
+drop.addEventListener('dragover', (e) => (e.preventDefault(), drop.classList.add('is-over')));
+drop.addEventListener('dragleave', () => drop.classList.remove('is-over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('is-over');
+  const f = e.dataTransfer.files?.[0];
+  if (f) return readOwnFile(f);
+  const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+  if (/^https?:/i.test(url)) setOwnImage(url.trim());
+});
+$('#ownFile').addEventListener('change', (e) => {
+  readOwnFile(e.target.files?.[0]);
+  e.target.value = '';
+});
+$('#ownImgUrl').addEventListener('change', (e) => {
+  const v = e.target.value.trim();
+  if (v) setOwnImage(v);
+  e.target.value = '';
+});
+$('#ownImgClear').addEventListener('click', () => setOwnImage(''));
+// Paste an image anywhere on the "Your own story" screen.
+document.addEventListener('paste', (e) => {
+  if ($('#view-1').classList.contains('is-active') && !$('[data-start-pane="own"]').hidden) {
+    const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/'));
+    if (f) {
+      e.preventDefault();
+      readOwnFile(f);
+    }
+  }
+});
+
+const wordCount = (t) => (t.trim() ? t.trim().split(/\s+/).length : 0);
+function updateOwn() {
+  const n = wordCount($('#ownText').value);
+  const hasHead = $('#ownTitle').value.trim().length > 0;
+  $('#ownCount').textContent = `${n} word${n === 1 ? '' : 's'}`;
+  const ok = n > 0 || hasHead;
+  $('#ownAsIs').disabled = !ok;
+  $('#ownAi').disabled = !ok;
+  $('#ownSummary').textContent = ok ? (own.image ? 'Ready — image and copy added' : 'Ready — add an image now or in the studio') : 'Add your copy to continue';
+}
+['#ownText', '#ownTitle'].forEach((id) => $(id).addEventListener('input', updateOwn));
+$('#ownImgClear').addEventListener('click', updateOwn);
+new MutationObserver(updateOwn).observe($('#ownDrop'), { attributes: true, attributeFilter: ['class'] });
+
+function ownItem() {
+  const text = $('#ownText').value.trim();
+  const head = $('#ownTitle').value.trim();
+  const words = text.split(/\s+/).filter(Boolean);
+  const firstSentence = (text.match(/^[^.!?\n]+[.!?]?/) || [''])[0].trim();
+  const title = head || firstSentence.split(/\s+/).slice(0, 14).join(' ');
+  return {
+    id: `own-${Date.now()}`,
+    kind: 'own',
+    sourceId: 'own',
+    sourceName: $('#ownCredit').value.trim(),
+    sourceColor: '#8B5CF6',
+    category: $('#ownCat').value,
+    title,
+    summary: words.length > 60 ? `${words.slice(0, 60).join(' ')}…` : text,
+    text,
+    link: '',
+    image: own.image,
+    video: '',
+    published: new Date().toISOString(),
+  };
+}
+$('#ownAsIs').addEventListener('click', () => openStudio(ownItem()));
+$('#ownAi').addEventListener('click', async () => {
+  await openStudio(ownItem());
+  $('#aiBtn').click();
+});
 
 /* ---------------- step 2: stories ---------------- */
 async function loadNews() {
@@ -424,8 +536,8 @@ function draw() {
 }
 
 function defaultCaption() {
-  const tags = ['#news', '#india', '#newsupdate', `#${(state.item?.category || 'latest').replace(/\W/g, '')}`, `#${(card.sourceName || '').replace(/\W/g, '').toLowerCase()}`];
-  return `${card.headline.replace(/\*/g, '')}\n\n${card.body}\n\nSource: ${card.sourceName}\n\n${tags.join(' ')}${card.handle ? `\n\nFollow ${card.handle} for more` : ''}`;
+  const tags = ['#news', '#india', '#newsupdate', `#${(state.item?.category || 'latest').replace(/\W/g, '')}`, `#${(card.sourceName || '').replace(/\W/g, '').toLowerCase()}`].filter((t) => t.length > 1);
+  return `${card.headline.replace(/\*/g, '')}\n\n${card.body}\n\n${card.sourceName ? `Source: ${card.sourceName}\n\n` : ''}${tags.join(' ')}${card.handle ? `\n\nFollow ${card.handle} for more` : ''}`;
 }
 
 async function loadImage(src) {
@@ -466,10 +578,11 @@ async function openStudio(item) {
   state.item = item;
   state.article = null;
   const rw = state.rewrites.get(item.id);
-  const cat = state.config.categories.find((c) => c.id === state.category);
+  const isOwn = item.kind === 'own';
+  const cat = state.config.categories.find((c) => c.id === (isOwn ? item.category : state.category));
   Object.assign(card, {
     headline: rw?.headline || item.title,
-    body: rw?.body || item.summary?.slice(0, 260) || '',
+    body: rw?.body || (isOwn ? item.summary : item.summary?.slice(0, 260)) || '',
     sourceName: item.kind === 'x' ? state.config.sources.find((s) => s.id === item.sourceId)?.name : item.sourceName,
     sourceColor: item.sourceColor,
     categoryLabel: cat?.id === 'top' ? '' : cat?.label || '',
@@ -482,11 +595,12 @@ async function openStudio(item) {
   card.caption = defaultCaption();
   syncFields();
   $('#origTitle').textContent = item.title;
-  $('#origText').textContent = item.summary || '';
-  $('#sourceLine').innerHTML = `Original: <a href="${esc(item.link)}" target="_blank" rel="noopener">${esc(item.sourceName)} ↗</a>${item.postUrl ? ` · <a href="${esc(item.postUrl)}" target="_blank" rel="noopener">X post ↗</a>` : ''}`;
+  $('#origText').textContent = (isOwn ? item.text : item.summary) || '';
+  $('#backTo2').textContent = isOwn ? '← Your story' : '← Stories';
+  $('#sourceLine').innerHTML = isOwn ? `Your own story${item.sourceName ? ` · credit: ${esc(item.sourceName)}` : ''}` : `Original: <a href="${esc(item.link)}" target="_blank" rel="noopener">${esc(item.sourceName)} ↗</a>${item.postUrl ? ` · <a href="${esc(item.postUrl)}" target="_blank" rel="noopener">X post ↗</a>` : ''}`;
   $('#thumbs').innerHTML = '<p class="muted small">Loading…</p>';
   $('#srcVideos').innerHTML = '<p class="muted small">Checking the article…</p>';
-  $('#aiNote').textContent = state.config.features.ai ? 'Rewrites from the full original article.' : 'AI key not set — uses a basic rewrite.';
+  $('#aiNote').textContent = !state.config.features.ai ? 'AI key not set — uses a basic rewrite.' : isOwn ? 'Rewrites from the copy you entered.' : 'Rewrites from the full original article.';
   go(3);
   await document.fonts.ready;
   setImage(item.image || '');
@@ -586,7 +700,8 @@ $('#aiBtn').addEventListener('click', async () => {
     const out = await api('/api/ai/rephrase', {
       method: 'POST',
       body: JSON.stringify({
-        url: it.kind === 'x' ? '' : it.link,
+        url: it.kind === 'x' || it.kind === 'own' ? '' : it.link,
+        text: it.kind === 'own' ? it.text : undefined,
         title: it.title,
         summary: it.summary,
         sourceName: card.sourceName,
@@ -601,7 +716,7 @@ $('#aiBtn').addEventListener('click', async () => {
     captionTouched = true;
     syncFields();
     draw();
-    toast(out.ai ? (out.usedArticle ? '✦ Rewritten from the full article' : '✦ Rewritten from the summary (article page was unreachable)') : 'Basic rewrite applied — add ANTHROPIC_API_KEY for AI');
+    toast(out.ai ? (it.kind === 'own' ? '✦ Rewritten from your copy' : out.usedArticle ? '✦ Rewritten from the full article' : '✦ Rewritten from the summary (article page was unreachable)') : 'Basic rewrite applied — add ANTHROPIC_API_KEY for AI');
   } catch (e) {
     toast(`AI rephrase failed: ${e.message}`, { error: true });
   } finally {

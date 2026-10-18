@@ -48,6 +48,12 @@
   <main>
     <!-- STEP 1 -->
     <section class="view is-active" id="view-1" aria-label="Sources">
+      <div class="start-switch" role="tablist" aria-label="Start from">
+        <button class="ss is-active" data-start="channels" role="tab" aria-selected="true">📰 From news channels</button>
+        <button class="ss" data-start="own" role="tab" aria-selected="false">✎ Your own story</button>
+      </div>
+
+      <div data-start-pane="channels">
       <div class="panel">
         <div class="panel-head">
           <span class="sec-label">Channels</span>
@@ -67,6 +73,48 @@
       <div class="panel">
         <div class="panel-head"><span class="sec-label">Category</span></div>
         <div class="chips" id="catChips" role="radiogroup" aria-label="Category"></div>
+      </div>
+      </div>
+
+      <div data-start-pane="own" hidden>
+        <div class="panel own-grid">
+          <div class="own-media">
+            <span class="sec-label">Image</span>
+            <div class="drop" id="ownDrop" tabindex="0" role="button" aria-label="Add an image">
+              <img id="ownPreview" alt="" hidden>
+              <div class="drop-hint" id="ownHint">
+                <strong>Drop an image here</strong>
+                <span class="muted small">or click to upload · paste with Ctrl/⌘+V</span>
+              </div>
+            </div>
+            <input type="file" id="ownFile" accept="image/*" hidden>
+            <div class="row gap-s own-img-actions">
+              <input class="input" id="ownImgUrl" type="url" placeholder="…or paste an image link">
+              <button class="btn btn-ghost btn-s" id="ownImgClear" hidden>Remove</button>
+            </div>
+            <p class="muted small">No image? The card uses a plain background — you can add one later in the studio.</p>
+          </div>
+          <div class="own-copy">
+            <label class="field">
+              <span>Headline <small class="muted">optional — AI can write one</small></span>
+              <input class="input" type="text" id="ownTitle" maxlength="200" placeholder="e.g. Heavy rain shuts schools in Chennai tomorrow">
+            </label>
+            <label class="field">
+              <span>Your copy <output id="ownCount">0 words</output></span>
+              <textarea id="ownText" rows="9" placeholder="Paste or type the news — a press note, your report, WhatsApp forward, notes…"></textarea>
+            </label>
+            <div class="two-col">
+              <label class="field">
+                <span>Credit / source <small class="muted">optional</small></span>
+                <input class="input" type="text" id="ownCredit" maxlength="60" placeholder="e.g. Your page, or the publisher">
+              </label>
+              <label class="field">
+                <span>Category</span>
+                <select id="ownCat"></select>
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="panel two-col">
@@ -91,9 +139,16 @@
         </label>
       </div>
 
-      <div class="cta-bar">
+      <div class="cta-bar" data-start-pane="channels">
         <p id="pickSummary">Pick at least one source</p>
         <button class="btn btn-primary btn-lg" id="fetchBtn" disabled>Fetch stories <span aria-hidden="true">→</span></button>
+      </div>
+      <div class="cta-bar" data-start-pane="own" hidden>
+        <p id="ownSummary">Add your copy to continue</p>
+        <div class="row gap-s wrap">
+          <button class="btn btn-ghost btn-lg" id="ownAsIs" disabled>Use my copy as-is</button>
+          <button class="btn btn-primary btn-lg" id="ownAi" disabled>✦ Rephrase with AI <span aria-hidden="true">→</span></button>
+        </div>
       </div>
     </section>
 

@@ -50,7 +50,7 @@ function offlineBody(text, title) {
   return clipWords(sentences.slice(0, 3).join(' ').trim(), 55);
 }
 function offlineCaption(headline, body, sourceName) {
-  return `${headline}\n\n${body}\n\nSource: ${sourceName}\n\n#news #india #breakingnews #newsupdate #${(sourceName || 'news').replace(/\W/g, '').toLowerCase()}`;
+  return `${headline}\n\n${body}\n\n${sourceName ? `Source: ${sourceName}\n\n` : ''}#news #india #breakingnews #newsupdate #${(sourceName || 'news').replace(/\W/g, '').toLowerCase()}`;
 }
 
 /** Rewrites many headlines in one call (used for the news grid). */
@@ -72,18 +72,21 @@ ${JSON.stringify(payload)}`;
 }
 
 /** Deep rewrite of one story from the original article text. */
-export async function rephraseArticle({ title, summary, text, sourceName, tone = 'punchy', lang = 'en', handle = '' }) {
+export async function rephraseArticle({ title, summary, text, sourceName, tone = 'punchy', lang = 'en', handle = '', own = false }) {
   const src = (text || summary || title || '').slice(0, 6000);
+  title = String(title || '').trim();
+  sourceName = String(sourceName || '').trim();
   if (!aiEnabled()) {
-    const headline = offlineHeadline(title);
+    const headline = offlineHeadline(title || (src.match(/^[^.!?\n]+/) || [''])[0]);
     const body = offlineBody(src, title);
     return { ai: false, headline, body, caption: offlineCaption(headline, body, sourceName) };
   }
   const system = `You are a news-desk editor preparing a 1:1 Instagram news card for a mass Indian audience. Tone: ${TONES[tone] || TONES.punchy}. Write in ${LANGS[lang] || 'English'}.\n${RULES}`;
-  const user = `Original headline: ${title}
-Publisher: ${sourceName}
+  const sourceLine = sourceName ? `then a blank line, then 'Source: ${sourceName}', ` : '';
+  const user = `${title ? `Original headline: ${title}` : 'Original headline: (none given — write one from the text)'}
+${own ? `This is the user's own news copy (a report, press note or notes)${sourceName ? `, credited to ${sourceName}` : ''}. Use only facts stated in it.` : `Publisher: ${sourceName}`}
 
-Original article:
+Original ${own ? 'copy' : 'article'}:
 """
 ${src}
 """
@@ -91,6 +94,6 @@ ${src}
 Return JSON only:
 {"headline": "max 12 words",
  "body": "40-60 words: what happened, who, and why it matters",
- "caption": "Instagram caption: 2-3 short sentences, then a blank line, then 'Source: ${sourceName}', then 6-10 relevant hashtags${handle ? `, and end with 'Follow ${handle} for more'` : ''}"}`;
+ "caption": "Instagram caption: 2-3 short sentences, ${sourceLine}then a blank line, then 6-10 relevant hashtags${handle ? `, and end with 'Follow ${handle} for more'` : ''}"}`;
   return { ai: true, ...(await callClaude(system, user, 1500)) };
 }
