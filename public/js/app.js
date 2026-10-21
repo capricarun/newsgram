@@ -279,6 +279,8 @@ function updatePick() {
   const cat = state.config.categories.find((c) => c.id === state.category)?.label;
   $('#pickSummary').textContent = n ? `${n} source${n > 1 ? 's' : ''} · ${cat}` : 'Pick at least one source';
   $('#fetchBtn').disabled = !n;
+  const sc = $('#scopeCount');
+  if (sc) sc.textContent = `(${n})`;
 }
 
 $('#selAll').addEventListener('click', () => {
@@ -291,7 +293,7 @@ $('#selNone').addEventListener('click', () => {
 });
 
 $('#fetchBtn').addEventListener('click', () => loadNews());
-$('#refreshBtn').addEventListener('click', () => loadNews());
+$('#refreshBtn').addEventListener('click', () => (state.mode === 'search' ? runSearch(state.searchQ, { fresh: true }) : loadNews()));
 $('#backTo1').addEventListener('click', () => go(1));
 $('#backTo2').addEventListener('click', () => go(state.item?.kind === 'own' ? 1 : 2));
 
@@ -306,7 +308,7 @@ function setStart(which) {
   store.set('start', which);
 }
 $$('.ss').forEach((b) => b.addEventListener('click', () => setStart(b.dataset.start)));
-setStart(store.get('start', 'channels') === 'own' ? 'own' : 'channels');
+setStart(['own', 'search'].includes(store.get('start')) ? store.get('start') : 'channels');
 
 function setOwnImage(src) {
   own.image = src || '';
@@ -404,6 +406,88 @@ $('#ownAi').addEventListener('click', async () => {
   $('#aiBtn').click();
 });
 
+/* ---------------- step 1c: search a story ---------------- */
+const search = { scope: store.get('searchScope', 'selected'), range: store.get('searchRange', '7d') };
+function syncSearchOpts() {
+  $$('[data-scope]').forEach((b) => b.setAttribute('aria-checked', b.dataset.scope === search.scope));
+  $$('[data-range]').forEach((b) => b.setAttribute('aria-checked', b.dataset.range === search.range));
+  const q = $('#searchQ').value.trim();
+  const noChannels = search.scope === 'selected' && !state.sources.size;
+  $('#searchBtn').disabled = !q || noChannels;
+  const where = search.scope === 'all' ? 'all news sites' : `${state.sources.size} channel${state.sources.size === 1 ? '' : 's'}`;
+  const when = { '1d': 'last 24 hours', '7d': 'last 7 days', '30d': 'last 30 days' }[search.range];
+  $('#searchSummary').textContent = noChannels ? 'Pick channels first, or search all news sites' : q ? `“${q}” · ${where} · ${when}` : 'Type a few keywords';
+}
+$$('[data-scope]').forEach((b) => b.addEventListener('click', () => ((search.scope = b.dataset.scope), store.set('searchScope', search.scope), syncSearchOpts())));
+$$('[data-range]').forEach((b) => b.addEventListener('click', () => ((search.range = b.dataset.range), store.set('searchRange', search.range), syncSearchOpts())));
+$('#searchQ').addEventListener('input', syncSearchOpts);
+$('.ss[data-start="search"]').addEventListener('click', () => {
+  syncSearchOpts();
+  setTimeout(() => $('#searchQ').focus(), 0);
+});
+
+function renderRecent() {
+  const list = store.get('recentSearches', []);
+  const el = $('#recentSearches');
+  el.hidden = !list.length;
+  el.innerHTML = list.length ? `<span class="sec-label">Recent</span>${list.map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join('')}` : '';
+  $$('#recentSearches [data-q]').forEach((b) => b.addEventListener('click', () => (($('#searchQ').value = b.dataset.q), runSearch(b.dataset.q))));
+}
+function remember(q) {
+  const list = [q, ...store.get('recentSearches', []).filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 8);
+  store.set('recentSearches', list);
+  renderRecent();
+}
+
+$('#searchForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!$('#searchBtn').disabled) runSearch($('#searchQ').value);
+});
+$('#storySearch').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('#storySearchQ').value.trim();
+  if (q) (($('#searchQ').value = q), runSearch(q));
+});
+
+async function runSearch(raw, { fresh = false } = {}) {
+  const q = String(raw || '').trim();
+  if (!q) return;
+  if (search.scope === 'selected' && !state.sources.size) return toast('Pick some channels first, or search all news sites.', { error: true });
+  state.mode = 'search';
+  state.searchQ = q;
+  remember(q);
+  store.set('tone', state.tone);
+  store.set('lang', state.lang);
+  go(2);
+  $('#storySearch').hidden = false;
+  $('#storySearchQ').value = q;
+  $('#storiesEyebrow').textContent = `Searching “${q}”…`;
+  $('#statusRow').innerHTML = '';
+  $('#storyTabs').hidden = true;
+  $('#storyGrid').innerHTML = Array.from({ length: 8 }, () => '<div class="skeleton shimmer"></div>').join('');
+  busy($('#searchBtn'), true);
+  try {
+    const params = new URLSearchParams({ q, scope: search.scope, range: search.range, sources: [...state.sources].join(','), category: state.category });
+    if (fresh) params.set('t', Date.now());
+    const out = await api(`/api/search?${params}`);
+    if (state.searchQ !== q) return; // a newer search won
+    state.news = { items: out.items, xItems: [], status: [] };
+    state.rewrites.clear();
+    state.tab = 'rss';
+    const where = search.scope === 'all' ? 'all news sites' : `${state.sources.size} channel${state.sources.size === 1 ? '' : 's'}`;
+    $('#storiesEyebrow').textContent = `“${q}” · ${out.items.length} result${out.items.length === 1 ? '' : 's'} · ${where}`;
+    $('#statusRow').innerHTML = (out.engines || [])
+      .map((e) => `<span class="status-pill engine ${e.error ? 'err' : ''}" title="${esc(e.error || '')}"><span class="d"></span>${esc(e.name)} · ${e.error ? 'failed' : e.count}</span>`)
+      .join('');
+    renderStories();
+    rewriteVisible();
+  } catch (e) {
+    $('#storyGrid').innerHTML = `<div class="empty">Search failed: ${esc(e.message)}</div>`;
+  } finally {
+    busy($('#searchBtn'), false);
+  }
+}
+
 /* ---------------- step 2: stories ---------------- */
 async function loadNews() {
   store.set('sources', [...state.sources]);
@@ -411,6 +495,8 @@ async function loadNews() {
   store.set('includeX', state.includeX);
   store.set('tone', state.tone);
   store.set('lang', state.lang);
+  state.mode = 'feeds';
+  $('#storySearch').hidden = true;
   go(2);
   const cat = state.config.categories.find((c) => c.id === state.category)?.label;
   $('#storiesEyebrow').textContent = `${cat} · ${state.sources.size} source${state.sources.size > 1 ? 's' : ''}`;
@@ -464,7 +550,10 @@ function currentList() {
 function renderStories() {
   const list = currentList();
   if (!list.length) {
-    $('#storyGrid').innerHTML = `<div class="empty">No stories came back for this selection. Try another category or source — hover the red pills above to see why.</div>`;
+    $('#storyGrid').innerHTML =
+      state.mode === 'search'
+        ? `<div class="empty">No stories found for “${esc(state.searchQ)}”. Try fewer or different keywords, a longer time range, or <b>All news sites</b>.</div>`
+        : `<div class="empty">No stories came back for this selection. Try another category or source — hover the red pills above to see why.</div>`;
     return;
   }
   $('#storyGrid').innerHTML = list
@@ -579,7 +668,7 @@ async function openStudio(item) {
   state.article = null;
   const rw = state.rewrites.get(item.id);
   const isOwn = item.kind === 'own';
-  const cat = state.config.categories.find((c) => c.id === (isOwn ? item.category : state.category));
+  const cat = state.config.categories.find((c) => c.id === (isOwn || item.search ? item.category : state.category));
   Object.assign(card, {
     headline: rw?.headline || item.title,
     body: rw?.body || (isOwn ? item.summary : item.summary?.slice(0, 260)) || '',
@@ -2145,6 +2234,8 @@ async function boot() {
     : 'Not connected yet — click to see what the server needs.';
   if (!pickMime().includes('mp4') && !f.transcode) $('#dlReel').textContent = '⬇ Record & download WebM';
   renderSources();
+  renderRecent();
+  syncSearchOpts();
   loadCatalog().then(updateMusicNote);
   onFolderChange(syncFolderChips);
   initSave();

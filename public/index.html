@@ -49,8 +49,36 @@
     <!-- STEP 1 -->
     <section class="view is-active" id="view-1" aria-label="Sources">
       <div class="start-switch" role="tablist" aria-label="Start from">
-        <button class="ss is-active" data-start="channels" role="tab" aria-selected="true">📰 From news channels</button>
-        <button class="ss" data-start="own" role="tab" aria-selected="false">✎ Your own story</button>
+        <button class="ss is-active" data-start="channels" role="tab" aria-selected="true">📰 <span class="ss-l">From news </span><span class="ss-s">News </span>channels</button>
+        <button class="ss" data-start="search" role="tab" aria-selected="false">🔎 Search<span class="ss-l"> a story</span></button>
+        <button class="ss" data-start="own" role="tab" aria-selected="false">✎ Your own<span class="ss-l"> story</span></button>
+      </div>
+
+      <div data-start-pane="search" hidden>
+        <form class="panel search-panel" id="searchForm" role="search">
+          <label class="search-box">
+            <span class="search-ico" aria-hidden="true">🔎</span>
+            <input type="search" id="searchQ" placeholder="Search news — e.g. Chennai rain, Sensex, Vijay movie, ISRO" autocomplete="off" enterkeyhint="search" maxlength="120">
+          </label>
+          <div class="search-opts">
+            <div class="opt-group">
+              <span class="sec-label">Search in</span>
+              <div class="chips" role="radiogroup" aria-label="Search in">
+                <button type="button" class="chip" role="radio" data-scope="selected" aria-checked="true">Your channels <span id="scopeCount"></span></button>
+                <button type="button" class="chip" role="radio" data-scope="all" aria-checked="false">All news sites</button>
+              </div>
+            </div>
+            <div class="opt-group">
+              <span class="sec-label">From</span>
+              <div class="chips" role="radiogroup" aria-label="Time range">
+                <button type="button" class="chip" role="radio" data-range="1d" aria-checked="false">Last 24 hours</button>
+                <button type="button" class="chip" role="radio" data-range="7d" aria-checked="true">Last 7 days</button>
+                <button type="button" class="chip" role="radio" data-range="30d" aria-checked="false">Last 30 days</button>
+              </div>
+            </div>
+          </div>
+          <div class="recent" id="recentSearches" hidden></div>
+        </form>
       </div>
 
       <div data-start-pane="channels">
@@ -142,6 +170,10 @@
       <div class="cta-bar" data-start-pane="channels">
         <p id="pickSummary">Pick at least one source</p>
         <button class="btn btn-primary btn-lg" id="fetchBtn" disabled>Fetch stories <span aria-hidden="true">→</span></button>
+      </div>
+      <div class="cta-bar" data-start-pane="search" hidden>
+        <p id="searchSummary">Type a few keywords</p>
+        <button class="btn btn-primary btn-lg" id="searchBtn" type="submit" form="searchForm" disabled>Search stories <span aria-hidden="true">→</span></button>
       </div>
       <div class="cta-bar" data-start-pane="own" hidden>
         <p id="ownSummary">Add your copy to continue</p>
@@ -349,6 +381,11 @@
           <button class="btn btn-ghost" id="refreshBtn">↻ Refresh</button>
         </div>
       </div>
+      <form class="search-box slim" id="storySearch" role="search" hidden>
+        <span class="search-ico" aria-hidden="true">🔎</span>
+        <input type="search" id="storySearchQ" placeholder="Search again…" autocomplete="off" enterkeyhint="search" maxlength="120">
+        <button class="btn btn-primary btn-s" type="submit">Search</button>
+      </form>
       <div class="status-row" id="statusRow"></div>
       <div class="tabs" id="storyTabs" hidden>
         <button class="tab is-active" data-tab="rss">Websites</button>

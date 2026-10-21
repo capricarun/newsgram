@@ -8,6 +8,7 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { SOURCES, CATEGORIES } from './sources.js';
 import { getNews } from './news.js';
+import { searchNews } from './search.js';
 import { getArticle } from './article.js';
 import { rephraseBatch, rephraseArticle, aiEnabled } from './ai.js';
 import { publishToInstagram, igEnabled } from './instagram.js';
@@ -72,6 +73,11 @@ app.get('/api/news', wrap(async (req, res) => {
   const category = String(req.query.category || 'top');
   if (!sourceIds.length) return res.status(400).json({ error: 'Pick at least one source' });
   res.json(await getNews({ sourceIds, category, includeX: req.query.x === '1' }));
+}));
+
+app.get('/api/search', wrap(async (req, res) => {
+  const sourceIds = String(req.query.sources || '').split(',').filter(Boolean);
+  res.json(await searchNews({ q: req.query.q, sourceIds, scope: String(req.query.scope || 'selected'), range: String(req.query.range || '7d'), category: String(req.query.category || 'top') }));
 }));
 
 app.get('/api/article', wrap(async (req, res) => {

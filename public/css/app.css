@@ -180,6 +180,7 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .ss { border: 0; background: transparent; color: var(--muted); font: 600 14px var(--ui); padding: 9px 16px; border-radius: 10px; cursor: pointer; }
 .ss:hover { color: var(--text); }
 .ss.is-active { background: var(--surface-3); color: var(--text); }
+.ss-s { display: none; }
 .own-grid { display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr); gap: 24px; align-items: start; }
 .own-media { display: flex; flex-direction: column; gap: 10px; }
 .drop {
@@ -198,7 +199,30 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
   .own-grid { grid-template-columns: 1fr; }
   .drop { aspect-ratio: 4 / 3; }
   .start-switch { display: flex; }
-  .ss { flex: 1; padding: 9px 8px; font-size: 13px; }
+  .ss { flex: 1; padding: 9px 6px; font-size: 13px; white-space: nowrap; }
+  .ss-l { display: none; }
+  .ss-s { display: inline; }
+}
+
+/* ---------- search ---------- */
+.search-panel { display: flex; flex-direction: column; gap: 18px; }
+.search-box { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 16px; border-radius: 16px; border: 1px solid var(--line-2); background: var(--surface-2); transition: border-color 0.15s; }
+.search-box:focus-within { border-color: var(--violet); }
+.search-box input[type='search'] { flex: 1; min-width: 0; border: 0; background: transparent; padding: 12px 4px; font-size: 17px; }
+.search-box input[type='search']:focus, .search-box input[type='search']:focus-visible { border: 0; outline: none; box-shadow: none; }
+.search-box.slim { margin-bottom: 14px; }
+.search-box.slim input[type='search'] { font-size: 15px; padding: 8px 4px; }
+.search-ico { font-size: 16px; opacity: 0.7; }
+.search-opts { display: flex; flex-wrap: wrap; gap: 18px 32px; }
+.opt-group { display: flex; flex-direction: column; gap: 8px; }
+.recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.recent .sec-label { margin-right: 4px; }
+.recent button { border: 1px solid var(--line-2); background: transparent; color: var(--text); font: 500 13px var(--ui); padding: 5px 11px; border-radius: 999px; cursor: pointer; }
+.recent button:hover { border-color: var(--accent); color: var(--accent); }
+.status-pill.engine { --c: var(--violet); }
+@media (max-width: 760px) {
+  .search-box input[type='search'] { font-size: 16px; }
+  .search-opts { flex-direction: column; gap: 14px; }
 }
 
 /* ---------- buttons ---------- */

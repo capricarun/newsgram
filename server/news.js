@@ -73,7 +73,7 @@ function normalise(item, source, category, via) {
   };
 }
 
-async function fetchFeed(url) {
+export async function fetchFeed(url) {
   const xml = await fetchText(url, 10000);
   const doc = parser.parse(xml);
   const items = doc?.rss?.channel?.item ?? doc?.feed?.entry ?? doc?.['rdf:RDF']?.item;
