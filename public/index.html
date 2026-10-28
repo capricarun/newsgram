@@ -107,20 +107,22 @@
       <div data-start-pane="own" hidden>
         <div class="panel own-grid">
           <div class="own-media">
-            <span class="sec-label">Image</span>
-            <div class="drop" id="ownDrop" tabindex="0" role="button" aria-label="Add an image">
+            <span class="sec-label">Image or video</span>
+            <div class="drop" id="ownDrop" tabindex="0" role="button" aria-label="Add an image or a video">
               <img id="ownPreview" alt="" hidden>
+              <video id="ownVideo" muted loop playsinline hidden></video>
+              <span class="badge video own-vbadge" id="ownVBadge" hidden>▶ Video news</span>
               <div class="drop-hint" id="ownHint">
-                <strong>Drop an image here</strong>
-                <span class="muted small">or click to upload · paste with Ctrl/⌘+V</span>
+                <strong>Drop an image or video here</strong>
+                <span class="muted small">or click to upload · paste an image with Ctrl/⌘+V</span>
               </div>
             </div>
-            <input type="file" id="ownFile" accept="image/*" hidden>
+            <input type="file" id="ownFile" accept="image/*,video/*" hidden>
             <div class="row gap-s own-img-actions">
               <input class="input" id="ownImgUrl" type="url" placeholder="…or paste an image link">
               <button class="btn btn-ghost btn-s" id="ownImgClear" hidden>Remove</button>
             </div>
-            <p class="muted small">No image? The card uses a plain background — you can add one later in the studio.</p>
+            <p class="muted small" id="ownMediaNote">Add a video to make a <b>video news</b> card — your headline plays over the clip. No media? The card uses a plain background; you can add one later in the studio.</p>
           </div>
           <div class="own-copy">
             <label class="field">
@@ -218,7 +220,10 @@
             <label class="field save-name"><span>File name</span><span class="name-wrap"><input type="text" id="grabFileName" maxlength="120" placeholder="Name your file" /><span class="ext" id="grabExt">.mp4</span></span></label>
                 <div class="save-where"><span class="folder-chip" data-folder>📁 Downloads</span><button class="link" data-choose>Choose folder</button><button class="link" data-reset hidden>Forget folder</button></div>
               </div>
-            <button class="btn btn-primary btn-lg" id="grabGo">⬇ Download MP4</button>
+            <div class="row gap-s wrap">
+              <button class="btn btn-primary btn-lg" id="grabGo">⬇ Download MP4</button>
+              <button class="btn btn-ghost btn-lg" id="grabToCard">✦ Make video news card</button>
+            </div>
             <div class="progress" id="grabProgress" hidden>
               <div class="bar"><i id="grabBar"></i></div>
               <span class="small muted" id="grabStage">Starting…</span>
@@ -229,7 +234,7 @@
                 <button class="btn btn-ghost" id="grabSave">💾 Save again</button>
                 <button class="btn btn-ghost" data-saveas="grab">Save as…</button>
                 <button class="btn btn-primary" id="grabEdit">🎬 Edit in video editor</button>
-                <button class="btn btn-ghost" id="grabToStudio">✦ Make a news card from this</button>
+                <button class="btn btn-ghost" id="grabToStudio">✦ Make video news card</button>
               </div>
               <div class="export-block ig" id="grabIgBlock">
                 <h3><span class="ig-mark"></span>Post to Instagram as a Reel</h3>
@@ -239,6 +244,34 @@
             </div>
           </div>
         </div>
+        <div class="panel extract" id="extractPanel">
+          <div class="panel-head"><span class="sec-label">🎵 Extract audio from a video</span></div>
+          <p class="muted small">Pick a video from your device — Newsgram pulls out the sound and saves it as an MP3.</p>
+          <div class="row gap-s wrap extract-pick">
+            <label class="btn btn-ghost file-btn" id="exPickLabel">⬆ Choose video<input type="file" id="exFile" accept="video/*,.mkv,.mov,.mp4,.webm,.3gp" /></label>
+            <span class="small muted" id="exName">No video chosen</span>
+          </div>
+          <div class="field">
+            <span>Audio quality</span>
+            <div class="chips" id="exRate" role="radiogroup" aria-label="Audio quality">
+              <button class="chip" role="radio" data-r="128" aria-checked="false">128 kbps</button>
+              <button class="chip" role="radio" data-r="192" aria-checked="true">192 kbps</button>
+              <button class="chip" role="radio" data-r="320" aria-checked="false">320 kbps</button>
+            </div>
+          </div>
+          <div class="save-row" data-save="ex">
+            <label class="field save-name"><span>File name</span><span class="name-wrap"><input type="text" id="exFileName" maxlength="120" placeholder="Name your file" /><span class="ext">.mp3</span></span></label>
+            <div class="save-where"><span class="folder-chip" data-folder>📁 Downloads</span><button class="link" data-choose>Choose folder</button><button class="link" data-reset hidden>Forget folder</button></div>
+          </div>
+          <div class="row gap-s wrap">
+            <button class="btn btn-primary btn-lg" id="exGo" disabled>⬇ Save as MP3</button>
+            <button class="btn btn-ghost" id="exSave" hidden>💾 Save again</button>
+            <button class="btn btn-ghost" id="exUse" hidden>♪ Use as reel music</button>
+          </div>
+          <p class="small muted" id="exStatus" hidden></p>
+          <audio id="exPlayer" controls hidden></audio>
+        </div>
+
         <p class="muted small rights">Only download videos you have permission to reuse, and credit the original creator. Some platforms need a logged-in session for private or age-restricted posts.</p>
       </div>
     </section>
@@ -370,6 +403,7 @@
         <p class="muted small ed-keys">Space: play/pause · ← →: step · S: split · Delete: remove clip · drag clip edges to trim, drag a clip to reorder</p>
       </div>
       <div class="ed-media" id="edMedia" aria-hidden="true"></div>
+      <div class="ed-media" id="stMedia" aria-hidden="true"></div>
     </section>
 
     <!-- STEP 2 -->
@@ -451,6 +485,23 @@
 
           <!-- IMAGE -->
           <div class="ipanel" data-panel="image">
+            <div class="field vbg" id="vbgField">
+              <span>Video background</span>
+              <div class="vbg-on" id="vbgOn" hidden>
+                <p class="small"><b id="vbgName"></b> <span class="muted" id="vbgDur"></span></p>
+                <div class="row gap-s wrap">
+                  <button class="btn btn-ghost btn-s" id="vbgPlay">❚❚ Pause</button>
+                  <button class="btn btn-ghost btn-s" id="vbgRestart">⟲ From start</button>
+                  <button class="btn btn-ghost btn-s" id="vbgRemove">Remove video</button>
+                </div>
+                <label class="switch ed-switch"><input type="checkbox" id="vbgSound" checked /><span class="track"><span class="thumb"></span></span><span>Keep the video's own sound in the reel</span></label>
+                <label class="field"><span>Video sound <output id="vbgVolOut">100%</output></span><input type="range" id="vbgVol" min="0" max="150" value="100" /></label>
+              </div>
+              <div class="row gap-s" id="vbgOff">
+                <label class="btn btn-ghost btn-s file-btn">⬆ Upload video<input type="file" id="vbgUpload" accept="video/*" /></label>
+                <span class="muted small">Your headline plays over the clip in the reel.</span>
+              </div>
+            </div>
             <label class="field">
               <span>Zoom <output id="zoomOut">100%</output></span>
               <input type="range" id="zoom" min="30" max="400" value="100" />
@@ -556,14 +607,27 @@
               </div>
             </div>
             <div class="export-block">
-              <h3>Reel (animated 1:1 video)</h3>
+              <h3 id="reelHead">Reel (animated 1:1 video)</h3>
               <label class="field">
                 <span>Length <output id="durOut">8s</output></span>
                 <input type="range" id="duration" min="5" max="15" value="8" />
               </label>
               <div class="row gap-s wrap">
-                <button class="btn btn-primary" id="dlReel">⬇ Record &amp; download MP4</button>
+                <button class="btn btn-primary" id="dlReel">🎬 Record video</button>
                 <button class="btn btn-ghost" id="previewReel">▶ Preview</button>
+              </div>
+              <div class="reel-out" id="reelOut" hidden>
+                <video id="reelOutVid" controls playsinline muted></video>
+                <div class="reel-out-side">
+                  <p class="small"><b>✓ Video ready</b> <span class="muted" id="reelOutInfo"></span></p>
+                  <div class="row gap-s wrap">
+                    <button class="btn btn-primary" id="reelToPhotos" hidden>📱 Save to Photos</button>
+                    <button class="btn btn-primary" id="reelToFolder" hidden>📁 Choose folder &amp; save</button>
+                    <button class="btn btn-ghost" id="reelSaveAs" hidden>Save as…</button>
+                    <button class="btn btn-ghost" id="reelDownload">⬇ Download</button>
+                  </div>
+                  <p class="muted small" id="reelOutHint"></p>
+                </div>
               </div>
               <p class="muted small" id="reelMusicNote">Keep this tab in front while recording.</p>
             </div>

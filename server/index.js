@@ -141,6 +141,7 @@ app.get('/api/video', wrap(async (req, res) => {
 const MEDIA_TYPES = {
   'image/jpeg': 'jpg', 'image/png': 'png',
   'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-matroska': 'mkv', 'video/3gpp': '3gp',
+  'video/x-msvideo': 'avi', 'video/mpeg': 'mpg', 'video/x-m4v': 'm4v', 'video/ogg': 'ogv',
   'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac',
   'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm',
 };
@@ -152,14 +153,39 @@ app.post('/api/media', express.raw({ type: ['image/*', 'video/*', 'audio/*'], li
   let name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
   fs.writeFileSync(path.join(MEDIA_DIR, name), req.body);
   // Instagram needs H.264 MP4 — transcode anything else (or re-mux MediaRecorder MP4 for safety).
-  if (type.startsWith('video/') && ffmpegPath && (ext === 'webm' || req.query.normalize === '1')) {
+  // ?raw=1 keeps the upload as-is (e.g. a video we only want the sound from).
+  if (type.startsWith('video/') && ffmpegPath && req.query.raw !== '1' && (ext === 'webm' || req.query.normalize === '1')) {
     const out = name.replace(/\.\w+$/, '-ig.mp4');
-    await transcode(path.join(MEDIA_DIR, name), path.join(MEDIA_DIR, out), req.query.audio === '1');
+    await transcode(path.join(MEDIA_DIR, name), path.join(MEDIA_DIR, out), req.query.audio === 'optional' ? 'optional' : req.query.audio === '1');
+    fs.rmSync(path.join(MEDIA_DIR, name), { force: true });
     name = out;
   }
   cleanupMedia();
   const base = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   res.json({ name, path: `/media/${name}`, url: `${base}/media/${name}` });
+}));
+
+// Pulls the sound track out of an uploaded video as an MP3.
+const BITRATES = new Set(['128', '192', '256', '320']);
+app.post('/api/audio/extract', wrap(async (req, res) => {
+  if (!ffmpegPath) throw new Error('ffmpeg is not available on this server.');
+  const src = mediaFile(req.body?.name);
+  const kbps = BITRATES.has(String(req.body?.bitrate)) ? String(req.body.bitrate) : '192';
+  const out = path.basename(src).replace(/\.\w+$/, '') + '-audio.mp3';
+  await new Promise((resolve, reject) => {
+    const p = spawn(ffmpegPath, ['-y', '-hide_banner', '-i', src, '-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-b:a', `${kbps}k`, '-ar', '44100', path.join(MEDIA_DIR, out)], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.on('error', (e) => reject(new Error(`ffmpeg couldn't start: ${e.message}`)));
+    p.stderr.on('data', (d) => (err = (err + d).slice(-3000)));
+    p.on('close', (code) => {
+      if (code === 0) return resolve();
+      if (/matches no streams|does not contain any stream/i.test(err)) return reject(Object.assign(new Error('This video has no sound track to extract.'), { status: 422 }));
+      reject(new Error(`ffmpeg failed: ${err.trim().split('\n').slice(-2).join(' ')}`));
+    });
+  });
+  fs.rmSync(src, { force: true }); // the uploaded video isn't needed any more
+  const size = fs.statSync(path.join(MEDIA_DIR, out)).size;
+  res.json({ name: out, path: `/media/${out}`, size });
 }));
 
 function transcode(input, output, hasAudio = false) {
@@ -173,6 +199,7 @@ function transcode(input, output, hasAudio = false) {
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', '30', '-b:v', '5M', '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-movflags', '+faststart', output];
     const p = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
+    p.on('error', (e) => reject(new Error(`ffmpeg couldn't start: ${e.message}`)));
     p.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
     p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg failed: ${err.split('\n').slice(-3).join(' ')}`))));
   });

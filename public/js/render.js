@@ -193,6 +193,12 @@ function pill(ctx, text, x, y, { bg, fg, size = 24, align = 'left', border } = {
 }
 
 /* ---------- image ---------- */
+/** Pixel size of an <img> or <video> (0×0 until a video has its first frame). */
+export function mediaSize(m) {
+  if (!m) return { w: 0, h: 0 };
+  return { w: m.videoWidth || m.naturalWidth || m.width || 0, h: m.videoHeight || m.naturalHeight || m.height || 0 };
+}
+
 function drawImage(ctx, c, area, zoom = 1, radius = 0) {
   ctx.save();
   if (radius) {
@@ -204,7 +210,8 @@ function drawImage(ctx, c, area, zoom = 1, radius = 0) {
     ctx.clip();
   }
   const img = c.img;
-  if (!img) {
+  const { w: iw, h: ih } = mediaSize(img);
+  if (!img || !iw || !ih) {
     const g = ctx.createLinearGradient(area.x, area.y, area.x + area.w, area.y + area.h);
     g.addColorStop(0, '#1b1b2a');
     g.addColorStop(1, c.sourceColor || '#333');
@@ -213,8 +220,6 @@ function drawImage(ctx, c, area, zoom = 1, radius = 0) {
     ctx.restore();
     return;
   }
-  const iw = img.naturalWidth || img.width;
-  const ih = img.naturalHeight || img.height;
   const cover = Math.max(area.w / iw, area.h / ih);
   const s = cover * c.imgScale * zoom;
   const dw = iw * s;
@@ -235,10 +240,9 @@ function drawImage(ctx, c, area, zoom = 1, radius = 0) {
 
 /** Keeps the image covering its frame while panning (or centred inside it when zoomed out). */
 export function clampPan(c) {
-  if (!c.img) return;
+  const { w: iw, h: ih } = mediaSize(c.img);
+  if (!iw || !ih) return;
   const A = imageArea(c.template);
-  const iw = c.img.naturalWidth || c.img.width;
-  const ih = c.img.naturalHeight || c.img.height;
   const s = Math.max(A.w / iw, A.h / ih) * c.imgScale;
   const limX = Math.abs(iw * s - A.w) / 2;
   const limY = Math.abs(ih * s - A.h) / 2;

@@ -52,9 +52,13 @@ export function playMusic(ctx, destination, music, dur) {
   return src;
 }
 
-export function recordReel(canvas, drawFrame, dur, onProgress = () => {}, music = null) {
+/**
+ * `extra` (optional) mixes another live source into the recording — e.g. a video
+ * background's own sound: { connect(ctx, dest), start(), stop() }.
+ */
+export function recordReel(canvas, drawFrame, dur, onProgress = () => {}, music = null, extra = null) {
   return new Promise(async (resolve, reject) => {
-    const withAudio = Boolean(music?.buffer);
+    const withAudio = Boolean(music?.buffer || extra);
     const mime = pickMime(withAudio);
     if (!mime || !canvas.captureStream) return reject(new Error('This browser cannot record video — try Chrome, Edge or Safari.'));
 
@@ -74,6 +78,7 @@ export function recordReel(canvas, drawFrame, dur, onProgress = () => {}, music 
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     rec.onerror = (e) => reject(e.error || new Error('Recording failed'));
     rec.onstop = () => {
+      try { extra?.stop?.(); } catch {}
       stream.getTracks().forEach((t) => t.stop());
       canvasStream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(chunks, { type: mime.split(';')[0] });
@@ -81,9 +86,11 @@ export function recordReel(canvas, drawFrame, dur, onProgress = () => {}, music 
       resolve(blob);
     };
 
+    if (extra) await extra.connect(ctx, dest);
     drawFrame({ t: 0, dur });
     rec.start(250);
-    if (withAudio) playMusic(ctx, dest, music, dur);
+    extra?.start?.();
+    if (music?.buffer) playMusic(ctx, dest, music, dur);
     const t0 = performance.now();
     const tick = (now) => {
       const t = (now - t0) / 1000;

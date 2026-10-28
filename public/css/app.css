@@ -555,3 +555,24 @@ a.btn { text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- video news ---------- */
+.drop video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.own-vbadge { position: absolute; left: 10px; top: 10px; z-index: 1; }
+.vbg-on { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--accent); border-radius: var(--radius-s); background: linear-gradient(90deg, rgba(198,255,61,0.08), transparent 70%), var(--surface-2); }
+.vbg-on p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vbg-on .field { margin: 0; }
+.extract { margin-top: 16px; }
+.extract > p { margin: 4px 0 12px; }
+.extract-pick { align-items: center; margin-bottom: 12px; }
+.extract audio { width: 100%; margin-top: 10px; }
+.extract #exName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.thumbs .thumb-video { display: grid; place-items: center; align-content: center; gap: 2px; font-size: 20px; color: var(--accent); background: var(--surface-2); }
+.thumbs .thumb-video span { font-size: 11px; font-weight: 700; color: var(--text); }
+
+/* ---------- reel output (save to folder / Photos) ---------- */
+.reel-out { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: start; margin-top: 12px; padding: 12px; border: 1px solid var(--accent); border-radius: var(--radius-s); background: linear-gradient(90deg, rgba(198,255,61,0.08), transparent 70%), var(--surface-2); }
+.reel-out video { width: 96px; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: #000; }
+.reel-out-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.reel-out p { margin: 0; }
+@media (max-width: 420px) { .reel-out { grid-template-columns: 1fr; } .reel-out video { width: 100%; } }

@@ -1,4 +1,4 @@
-import { renderCard, SIZE, ACCENTS, TEMPLATES, imageArea, clampPan } from './render.js';
+import { renderCard, SIZE, ACCENTS, TEMPLATES, imageArea, clampPan, mediaSize } from './render.js';
 import { recordReel, pickMime, audioContext, playMusic } from './reel.js';
 import { initSave, saveFile, chooseFolder, clearFolder, onFolderChange, supportsFolders, cleanName, folderName } from './save.js';
 
@@ -69,6 +69,9 @@ const card = {
   },
 };
 
+// Video background for "video news" cards: { el, src, name, duration, node, gain, volume, sound }.
+let vbg = null;
+
 /* ---------------- helpers ---------------- */
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -106,6 +109,11 @@ function timeAgo(iso) {
 }
 
 const proxied = (url) => (!url ? '' : /^https?:/i.test(url) ? `/api/img?url=${encodeURIComponent(url)}` : url);
+
+const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska', 'video/3gpp', 'video/x-msvideo', 'video/mpeg', 'video/x-m4v', 'video/ogg'];
+const isVideoFile = (f) => /^video\//.test(f?.type || '') || /\.(mp4|m4v|mov|webm|mkv|3gp|avi|mpe?g)$/i.test(f?.name || '');
+/** A video File as a Blob with a content type the server accepts (ffmpeg reads the real format). */
+const videoBlob = (f) => new Blob([f], { type: VIDEO_TYPES.includes(f.type) ? f.type : 'video/mp4' });
 
 function slug(s) {
   return (s || 'news').toLowerCase().replace(/\*/g, '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 50) || 'news';
@@ -188,6 +196,11 @@ function go(step) {
   });
   if (step === 2 || (step > 2 && state.news)) $('.step[data-step="2"]').disabled = false;
   if (step === 3) $('.step[data-step="3"]').disabled = false;
+  if (vbg) {
+    if (step === 3) vbg.el.play().catch(() => {}), requestAnimationFrame(vloop);
+    else vbg.el.pause();
+    renderVbg();
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 $$('.step').forEach((b) => b.addEventListener('click', () => !b.disabled && go(Number(b.dataset.step))));
@@ -298,7 +311,7 @@ $('#backTo1').addEventListener('click', () => go(1));
 $('#backTo2').addEventListener('click', () => go(state.item?.kind === 'own' ? 1 : 2));
 
 /* ---------------- step 1b: your own story ---------------- */
-const own = { image: '' };
+const own = { image: '', video: null }; // video: { url, name, file }
 function setStart(which) {
   $$('.ss').forEach((b) => {
     b.classList.toggle('is-active', b.dataset.start === which);
@@ -310,22 +323,58 @@ function setStart(which) {
 $$('.ss').forEach((b) => b.addEventListener('click', () => setStart(b.dataset.start)));
 setStart(['own', 'search'].includes(store.get('start')) ? store.get('start') : 'channels');
 
+function syncOwnMedia() {
+  $('#ownDrop').classList.toggle('has-img', !!(own.image || own.video));
+  $('#ownImgClear').hidden = !(own.image || own.video);
+  $('#ownVBadge').hidden = !own.video;
+}
 function setOwnImage(src) {
+  if (src) clearOwnVideo();
   own.image = src || '';
   const img = $('#ownPreview');
   img.hidden = !own.image;
   if (own.image) img.src = proxied(own.image);
   else img.removeAttribute('src');
-  $('#ownDrop').classList.toggle('has-img', !!own.image);
-  $('#ownImgClear').hidden = !own.image;
+  syncOwnMedia();
 }
+function setOwnVideo(f) {
+  clearOwnVideo();
+  setOwnImage('');
+  own.video = { url: URL.createObjectURL(f), name: f.name.replace(/\.[^.]+$/, '').slice(0, 60), file: f };
+  const v = $('#ownVideo');
+  v.src = own.video.url;
+  v.hidden = false;
+  v.play().catch(() => {});
+  syncOwnMedia();
+  updateOwn();
+}
+function clearOwnVideo() {
+  if (!own.video) return;
+  const v = $('#ownVideo');
+  v.pause();
+  v.removeAttribute('src');
+  v.load();
+  v.hidden = true;
+  // keep the URL alive if the studio is still playing it
+  if (vbg?.src !== own.video.url) URL.revokeObjectURL(own.video.url);
+  own.video = null;
+  syncOwnMedia();
+}
+$('#ownVideo').addEventListener('error', () => {
+  // Can't preview here (e.g. HEVC in Chrome) — the studio converts it on the server.
+  if (own.video) $('#ownVideo').hidden = true;
+});
 $('#ownPreview').addEventListener('error', () => {
   if (!own.image) return;
   toast("Couldn't load that image — try another or upload one.", { error: true });
   setOwnImage('');
 });
 function readOwnFile(f) {
-  if (!f || !/^image\//.test(f.type)) return toast('That file isn\'t an image.', { error: true });
+  if (f && isVideoFile(f)) {
+    if (f.size > 300e6) return toast('That video is over 300 MB — pick a shorter clip.', { error: true });
+    return setOwnVideo(f);
+  }
+  if (!f || !/^image\//.test(f.type)) return toast("That file isn't an image or a video.", { error: true });
   const r = new FileReader();
   r.onload = () => setOwnImage(r.result);
   r.readAsDataURL(f);
@@ -352,7 +401,7 @@ $('#ownImgUrl').addEventListener('change', (e) => {
   if (v) setOwnImage(v);
   e.target.value = '';
 });
-$('#ownImgClear').addEventListener('click', () => setOwnImage(''));
+$('#ownImgClear').addEventListener('click', () => (clearOwnVideo(), setOwnImage('')));
 // Paste an image anywhere on the "Your own story" screen.
 document.addEventListener('paste', (e) => {
   if ($('#view-1').classList.contains('is-active') && !$('[data-start-pane="own"]').hidden) {
@@ -372,7 +421,9 @@ function updateOwn() {
   const ok = n > 0 || hasHead;
   $('#ownAsIs').disabled = !ok;
   $('#ownAi').disabled = !ok;
-  $('#ownSummary').textContent = ok ? (own.image ? 'Ready — image and copy added' : 'Ready — add an image now or in the studio') : 'Add your copy to continue';
+  $('#ownSummary').textContent = ok
+    ? own.video ? 'Ready — video news with your copy' : own.image ? 'Ready — image and copy added' : 'Ready — add an image or video now, or in the studio'
+    : own.video ? 'Video added — now add your copy' : 'Add your copy to continue';
 }
 ['#ownText', '#ownTitle'].forEach((id) => $(id).addEventListener('input', updateOwn));
 $('#ownImgClear').addEventListener('click', updateOwn);
@@ -395,8 +446,9 @@ function ownItem() {
     summary: words.length > 60 ? `${words.slice(0, 60).join(' ')}…` : text,
     text,
     link: '',
-    image: own.image,
+    image: own.video ? '' : own.image,
     video: '',
+    bgVideo: own.video ? { src: own.video.url, name: own.video.name, file: own.video.file } : null,
     published: new Date().toISOString(),
   };
 }
@@ -641,6 +693,7 @@ async function loadImage(src) {
 }
 
 async function setImage(src, { keepTransform = false } = {}) {
+  if (vbg) dropVideo();
   card.imgSrc = src;
   const img = await loadImage(proxied(src));
   if (card.imgSrc !== src) return; // a newer choice won
@@ -663,7 +716,181 @@ function syncZoom() {
   $('#zoomOut').textContent = `${Math.round(card.imgScale * 100)}%`;
 }
 
+/* ---------------- video background (video news) ---------------- */
+// While a video is set, card.img is the <video>; renderCard draws its current frame.
+let vloopRaf = 0;
+function vloop() {
+  cancelAnimationFrame(vloopRaf);
+  if (!vbg) return;
+  if (!state.busy && !vbg.el.paused && $('#view-3').classList.contains('is-active')) {
+    clampPan(card);
+    renderCard(ctx, card);
+  }
+  vloopRaf = requestAnimationFrame(vloop);
+}
+
+/** Uses a video (same-origin /media URL or blob: URL) as the card background. */
+async function setVideoBg(src, { name = 'Video', objectUrl = null, file = null } = {}) {
+  dropVideo();
+  const el = document.createElement('video');
+  el.muted = true;
+  el.loop = true;
+  el.playsInline = true;
+  el.preload = 'auto';
+  if (!/^blob:/.test(src)) el.crossOrigin = 'anonymous';
+  $('#stMedia').appendChild(el);
+  const v = { el, src, name, objectUrl, duration: 0, node: null, gain: null, volume: Number($('#vbgVol').value) / 100, sound: $('#vbgSound').checked };
+  vbg = v;
+  card.imgSrc = `video:${src}`;
+  $('#vbgName').textContent = 'Loading video…';
+  $('#vbgOn').hidden = false;
+  $('#vbgOff').hidden = true;
+  const ok = await new Promise((resolve) => {
+    const done = (r) => {
+      clearTimeout(timer);
+      el.onloadeddata = el.onerror = null;
+      resolve(r);
+    };
+    const timer = setTimeout(() => done(false), 30000);
+    el.onloadeddata = () => done(el.videoWidth > 0);
+    el.onerror = () => done(false);
+    el.src = src;
+  });
+  if (vbg !== v) return false; // replaced meanwhile
+  if (!ok) {
+    vbg = null;
+    el.remove();
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    card.imgSrc = '';
+    renderVbg();
+    if (file && state.config.features.transcode) {
+      // e.g. an iPhone HEVC clip in Chrome: convert to H.264 on the server and try again.
+      toast('Converting the video so the browser can play it… this can take a minute.', { ms: 60000 });
+      try {
+        const up = await uploadMedia(videoBlob(file), true, 'optional');
+        return setVideoBg(up.path, { name });
+      } catch (e) {
+        toast(`Couldn't use that video: ${e.message}`, { error: true, ms: 8000 });
+      }
+    } else toast("This browser can't play that video — try an MP4 (H.264).", { error: true, ms: 8000 });
+    if (!card.img && state.item?.image) setImage(state.item.image);
+    return false;
+  }
+  v.duration = Number.isFinite(el.duration) ? el.duration : 0;
+  card.img = el;
+  resetTransform();
+  el.play().catch(() => {});
+  setReelLength();
+  renderVbg();
+  renderStylePickers();
+  $$('#thumbs button').forEach((b) => b.classList.remove('is-active'));
+  requestAnimationFrame(vloop);
+  return true;
+}
+
+function dropVideo() {
+  if (!vbg) return;
+  const v = vbg;
+  vbg = null;
+  cancelAnimationFrame(vloopRaf);
+  try {
+    v.el.pause();
+    v.gain?.disconnect();
+  } catch {}
+  v.el.removeAttribute('src');
+  v.el.load();
+  v.el.remove();
+  if (v.objectUrl) URL.revokeObjectURL(v.objectUrl);
+  if (card.img === v.el) card.img = null;
+  if (card.imgSrc.startsWith('video:')) card.imgSrc = '';
+  setReelLength();
+  renderVbg();
+}
+
+/** Routes the video's own sound through Web Audio (done once per video). */
+function vbgAudio() {
+  if (!vbg.node) {
+    const actx = audioContext();
+    vbg.node = actx.createMediaElementSource(vbg.el);
+    vbg.gain = actx.createGain();
+    vbg.node.connect(vbg.gain);
+    vbg.el.muted = false; // from now on it's only heard where the gain node is connected
+  }
+  vbg.gain.gain.value = vbg.volume;
+  return vbg.gain;
+}
+
+/** Rewinds the video to the first frame (paused). */
+async function rewindVideo() {
+  const el = vbg.el;
+  el.pause();
+  await new Promise((r) => {
+    el.addEventListener('seeked', r, { once: true });
+    setTimeout(r, 1500);
+    el.currentTime = 0;
+  });
+}
+
+function setReelLength() {
+  const r = $('#duration');
+  if (vbg?.duration) {
+    r.max = Math.max(5, Math.min(90, Math.ceil(vbg.duration)));
+    r.value = Math.min(Number(r.max), 30);
+  } else {
+    r.max = 15;
+    if (Number(r.value) > 15) r.value = 8;
+  }
+  $('#durOut').textContent = `${r.value}s`;
+  $('#reelHead').textContent = vbg ? 'Video news reel (1:1, plays your clip)' : 'Reel (animated 1:1 video)';
+}
+
+function renderVbg() {
+  $('#vbgOn').hidden = !vbg;
+  $('#vbgOff').hidden = !!vbg;
+  if (!vbg) return;
+  $('#vbgName').textContent = vbg.name;
+  $('#vbgDur').textContent = vbg.duration ? `· ${fmtDur(vbg.duration)}` : '';
+  $('#vbgPlay').textContent = vbg.el.paused ? '▶ Play' : '❚❚ Pause';
+}
+
+$('#vbgPlay').addEventListener('click', () => {
+  if (!vbg) return;
+  if (vbg.el.paused) vbg.el.play().catch(() => {}), requestAnimationFrame(vloop);
+  else vbg.el.pause(), draw();
+  setTimeout(renderVbg, 50);
+});
+$('#vbgRestart').addEventListener('click', async () => {
+  if (!vbg) return;
+  await rewindVideo();
+  vbg.el.play().catch(() => {});
+  requestAnimationFrame(vloop);
+  renderVbg();
+});
+$('#vbgRemove').addEventListener('click', () => {
+  dropVideo();
+  setImage(state.item?.image || state.article?.image || '');
+  toast('Video removed — back to an image card.');
+});
+$('#vbgSound').addEventListener('change', (e) => vbg && (vbg.sound = e.target.checked));
+$('#vbgVol').addEventListener('input', (e) => {
+  $('#vbgVolOut').textContent = `${e.target.value}%`;
+  if (!vbg) return;
+  vbg.volume = Number(e.target.value) / 100;
+  if (vbg.gain) vbg.gain.gain.value = vbg.volume;
+});
+$('#vbgUpload').addEventListener('change', (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  if (!isVideoFile(f)) return toast("That file isn't a video.", { error: true });
+  if (f.size > 300e6) return toast('That video is over 300 MB — pick a shorter clip.', { error: true });
+  const url = URL.createObjectURL(f);
+  setVideoBg(url, { name: f.name.replace(/\.[^.]+$/, ''), objectUrl: url, file: f }).then((ok) => ok && toast('Video news card ✓ — record it from Publish → Reel'));
+});
+
 async function openStudio(item) {
+  dropVideo();
+  $('#reelOut').hidden = true;
   state.item = item;
   state.article = null;
   const rw = state.rewrites.get(item.id);
@@ -693,6 +920,9 @@ async function openStudio(item) {
   go(3);
   await document.fonts.ready;
   setImage(item.image || '');
+  if (item.bgVideo) {
+    setVideoBg(item.bgVideo.src, item.bgVideo).then((ok) => ok && state.item === item && toast('Video news card ✓ — your headline plays over the clip. Record it from Publish → Reel.', { ms: 6000 }));
+  }
 
   if (item.link && !/^https:\/\/x\.com/.test(item.link)) {
     try {
@@ -702,17 +932,19 @@ async function openStudio(item) {
     }
   } else state.article = { images: [], videos: [] };
   if (state.item !== item) return;
-  if (!item.image && state.article.image) setImage(state.article.image);
+  if (!item.image && !item.bgVideo && state.article.image) setImage(state.article.image);
   renderThumbs();
   renderVideos();
 }
 
 function renderThumbs() {
   const imgs = [...new Set([state.item.image, ...(state.article?.images || [])].filter(Boolean))];
-  $('#thumbs').innerHTML = imgs.length
-    ? imgs.map((src) => `<button data-src="${esc(src)}" class="${src === card.imgSrc ? 'is-active' : ''}"><img src="${esc(proxied(src))}" alt="" onerror="this.parentElement.remove()"></button>`).join('')
+  const vid = state.item.bgVideo ? `<button data-video class="thumb-video" title="Use the video">▶<span>Video</span></button>` : '';
+  $('#thumbs').innerHTML = imgs.length || vid
+    ? vid + imgs.map((src) => `<button data-src="${esc(src)}" class="${src === card.imgSrc ? 'is-active' : ''}"><img src="${esc(proxied(src))}" alt="" onerror="this.parentElement.remove()"></button>`).join('')
     : '<p class="muted small">No other images found in the article.</p>';
-  $$('#thumbs button').forEach((b) => b.addEventListener('click', () => setImage(b.dataset.src)));
+  $$('#thumbs button[data-src]').forEach((b) => b.addEventListener('click', () => setImage(b.dataset.src)));
+  $('#thumbs [data-video]')?.addEventListener('click', () => !vbg && setVideoBg(state.item.bgVideo.src, state.item.bgVideo));
 }
 
 function renderVideos() {
@@ -833,8 +1065,8 @@ $$('[data-fit]').forEach((b) =>
       resetTransform();
     } else if (card.img) {
       const A = imageArea(card.template);
-      const iw = card.img.naturalWidth;
-      const ih = card.img.naturalHeight;
+      const { w: iw, h: ih } = mediaSize(card.img);
+      if (!iw || !ih) return;
       card.imgScale = Math.min(A.w / iw, A.h / ih) / Math.max(A.w / iw, A.h / ih);
       card.imgX = card.imgY = 0;
       syncZoom();
@@ -970,42 +1202,126 @@ async function makeReel() {
   try {
     const dur = Number($('#duration').value);
     const m = await selectedMusic();
+    let extra = null;
+    if (vbg) {
+      await rewindVideo();
+      const v = vbg;
+      extra = {
+        connect: (actx, dest) => v.sound && vbgAudio().connect(dest),
+        start: () => v.el.play().catch(() => {}),
+        stop: () => {
+          try { v.gain?.disconnect(); } catch {}
+        },
+      };
+    }
     $('#recText').textContent = 'Recording reel…';
-    return await recordReel(canvas, (anim) => renderCard(ctx, card, anim), dur, (p) => ($('#recText').textContent = `Recording reel… ${Math.round(p * 100)}%`), m);
+    return await recordReel(canvas, (anim) => renderCard(ctx, card, anim), dur, (p) => ($('#recText').textContent = `Recording reel… ${Math.round(p * 100)}%`), m, extra);
   } finally {
     state.busy = false;
     $('#recOverlay').hidden = true;
     $$('#view-3 [data-was-disabled]').forEach((el) => ((el.disabled = el.dataset.wasDisabled === 'true'), delete el.dataset.wasDisabled));
+    if (vbg) vbg.el.play().catch(() => {}), requestAnimationFrame(vloop);
     draw();
   }
 }
 
-async function uploadMedia(blob, normalize = false) {
+async function uploadMedia(blob, normalize = false, audio = null) {
   const q = new URLSearchParams();
-  if (normalize) q.set('normalize', '1');
-  if (blob.hasAudio) q.set('audio', '1');
-  const res = await fetch(`/api/media?${q}`, { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0] }, body: blob });
+  if (normalize === 'raw') q.set('raw', '1');
+  else if (normalize) q.set('normalize', '1');
+  if (audio) q.set('audio', audio);
+  else if (blob.hasAudio) q.set('audio', '1');
+  const res = await fetch(`/api/media?${q}`, { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0] || 'video/mp4' }, body: blob });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Upload failed');
   return data;
 }
 
+/* ---- reel output: save to a folder (desktop) or to Photos (iPhone / Android) ---- */
+const reelOut = { blob: null, ext: 'mp4', url: '' };
+const isPhone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+const canShareFiles = (() => {
+  try {
+    return Boolean(navigator.canShare?.({ files: [new File([new Blob(['x'], { type: 'video/mp4' })], 'x.mp4', { type: 'video/mp4' })] }));
+  } catch {
+    return false;
+  }
+})();
+const toPhotos = isPhone && canShareFiles;
+const reelName = () => `${readable(card.headline)} reel`;
+
+function syncReelOut() {
+  const box = $('#reelOut');
+  box.hidden = !reelOut.blob;
+  if (!reelOut.blob) return;
+  const pick = supportsFolders();
+  $('#reelToPhotos').hidden = !toPhotos;
+  $('#reelToFolder').hidden = toPhotos || !pick;
+  $('#reelSaveAs').hidden = toPhotos || !pick;
+  $('#reelToFolder').textContent = folderName() ? `📁 Save to “${folderName()}”` : '📁 Choose folder & save';
+  $('#reelDownload').textContent = isPhone ? '⬇ Save to Files' : pick ? '⬇ Downloads folder' : '⬇ Download';
+  $('#reelOutHint').textContent = toPhotos
+    ? 'Opens the share sheet — tap “Save Video” to put it in Photos (you can also share straight to Instagram or WhatsApp).'
+    : pick
+      ? 'Pick a folder once (e.g. Desktop) — after that, every new video saves there automatically.'
+      : "This browser saves to its Downloads folder. To pick a folder, use Chrome or Edge.";
+}
+
+async function saveReelToFolder() {
+  if (!reelOut.blob) return;
+  if (!folderName()) {
+    try {
+      if (!(await chooseFolder())) return; // cancelled
+    } catch (e) {
+      return toast(e.message, { error: true });
+    }
+  }
+  return doSave(reelOut.blob, 'st', reelOut.ext, { fallbackName: reelName() });
+}
+
+async function saveReelToPhotos() {
+  if (!reelOut.blob) return;
+  const file = new File([reelOut.blob], `${cleanName($('#stFileName').value || reelName())}.${reelOut.ext}`, { type: reelOut.blob.type || 'video/mp4' });
+  try {
+    await navigator.share({ files: [file], title: card.headline.replace(/\*/g, '') });
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    toast(`Couldn't open the share sheet (${e.message}) — saving to Files instead.`, { error: true, ms: 6000 });
+    download(reelOut.blob, file.name);
+  }
+}
+
+$('#reelToFolder').addEventListener('click', saveReelToFolder);
+$('#reelSaveAs').addEventListener('click', () => reelOut.blob && doSave(reelOut.blob, 'st', reelOut.ext, { askWhere: true, fallbackName: reelName() }));
+$('#reelToPhotos').addEventListener('click', saveReelToPhotos);
+$('#reelDownload').addEventListener('click', () => reelOut.blob && download(reelOut.blob, `${cleanName($('#stFileName').value || reelName())}.${reelOut.ext}`));
+onFolderChange(() => reelOut.blob && syncReelOut());
+
 $('#dlReel').addEventListener('click', async () => {
   const btn = $('#dlReel');
   stopPreviewTrack();
   try {
-    const blob = await makeReel();
+    let blob = await makeReel();
     if (!blob) return;
-    if (/mp4/.test(blob.type)) return doSave(blob, 'st', 'mp4', { fallbackName: `${readable(card.headline)} reel` });
-    if (state.config.features.transcode) {
+    let ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
+    // Phones: always hand Photos a clean H.264/AAC MP4. Desktop: convert only WebM.
+    if (state.config.features.transcode && (ext === 'webm' || toPhotos)) {
       busy(btn, true);
-      toast('Converting to MP4…');
-      const up = await uploadMedia(blob);
-      const mp4 = await (await fetch(up.path)).blob();
-      return doSave(mp4, 'st', 'mp4', { fallbackName: `${readable(card.headline)} reel` });
+      toast('Preparing the MP4…', { ms: 60000 });
+      const up = await uploadMedia(blob, toPhotos);
+      blob = await (await fetch(up.path)).blob();
+      ext = 'mp4';
     }
-    doSave(blob, 'st', 'webm', { fallbackName: `${readable(card.headline)} reel` });
-    toast('Saved as WebM — this browser cannot record MP4 and the server has no ffmpeg.');
+    if (reelOut.url) URL.revokeObjectURL(reelOut.url);
+    Object.assign(reelOut, { blob, ext, url: URL.createObjectURL(blob) });
+    $('#reelOutVid').src = reelOut.url;
+    $('#reelOutInfo').textContent = `· ${fmtSize(blob.size)} · ${ext.toUpperCase()}`;
+    syncReelOut();
+    $('#reelOut').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (ext === 'webm') toast('Saved as WebM — this browser cannot record MP4 and the server has no ffmpeg.');
+    // Desktop with a folder already chosen → save straight away; otherwise wait for a tap.
+    if (!toPhotos && folderName()) await saveReelToFolder();
+    else toast(toPhotos ? 'Video ready ✓ — tap “Save to Photos”' : 'Video ready ✓ — choose where to save it', { ms: 5000 });
   } catch (e) {
     toast(`Reel failed: ${e.message}`, { error: true });
   } finally {
@@ -1019,6 +1335,19 @@ async function previewReel() {
   const dur = Number($('#duration').value);
   state.busy = true;
   let src = null;
+  let vgain = null;
+  if (vbg) {
+    await rewindVideo();
+    try {
+      if (vbg.sound) {
+        const actx = audioContext();
+        if (actx.state === 'suspended') await actx.resume();
+        vgain = vbgAudio();
+        vgain.connect(actx.destination);
+      }
+    } catch {}
+    vbg.el.play().catch(() => {});
+  }
   try {
     const m = await selectedMusic();
     if (m) {
@@ -1037,6 +1366,8 @@ async function previewReel() {
     else {
       state.busy = false;
       try { src?.stop(); } catch {}
+      try { vgain?.disconnect(); } catch {}
+      if (vbg) requestAnimationFrame(vloop);
       draw();
     }
   };
@@ -1313,6 +1644,9 @@ function renderGrabInfo() {
   $('#grabExt').textContent = '.mp4';
   $('#grabGo').disabled = false;
   $('#grabGo').hidden = false;
+  $('#grabToCard').hidden = false;
+  $('#grabToCard').disabled = false;
+  grab.after = null;
   $('#grabProgress').hidden = true;
   $('#grabDone').hidden = true;
   $('#grabCaption').value = `${i.title}\n\n🎥 Credit: ${i.uploader || i.platform} (${i.platform})\n\n#news #viral #trending`;
@@ -1321,6 +1655,7 @@ function renderGrabInfo() {
 $('#grabGo').addEventListener('click', async () => {
   const btn = $('#grabGo');
   btn.disabled = true;
+  $('#grabToCard').disabled = true;
   $('#grabProgress').hidden = false;
   $('#grabDone').hidden = true;
   $('#grabBar').style.width = '2%';
@@ -1333,6 +1668,8 @@ $('#grabGo').addEventListener('click', async () => {
   } catch (e) {
     toast(e.message, { error: true, ms: 9000 });
     btn.disabled = false;
+    $('#grabToCard').disabled = false;
+    grab.after = null;
     $('#grabProgress').hidden = true;
   }
 });
@@ -1350,27 +1687,37 @@ async function pollGrab(id) {
   if (j.status === 'running') return;
   clearInterval(grab.timer);
   $('#grabGo').disabled = false;
+  $('#grabToCard').disabled = false;
   if (j.status === 'error') {
+    grab.after = null;
     $('#grabProgress').hidden = true;
     return toast(j.error || 'Download failed', { error: true, ms: 10000 });
   }
   grab.job = j;
   $('#grabProgress').hidden = true;
   $('#grabGo').hidden = true;
+  $('#grabToCard').hidden = true;
   $('#grabDone').hidden = false;
   $('#grabSize').textContent = `· ${fmtSize(j.size)}`;
   const isAudio = /\.mp3$/i.test(j.file || '');
   $('#grabIgBlock').hidden = isAudio;
   grab.ext = isAudio ? 'mp3' : 'mp4';
+  $('#grabToStudio').textContent = isAudio ? '✦ Make a news card from this' : '✦ Make video news card';
+  if (grab.after === 'studio') {
+    grab.after = null;
+    if (!isAudio) return openStudio(grabItem());
+  }
   // Save straight away with the chosen name (into the chosen folder if one is set).
   doSave(`/media/${encodeURIComponent(j.file)}`, 'grab', grab.ext, { fallbackName: readable(grab.info.title) });
 }
 
 $('#grabSave').addEventListener('click', () => grab.job?.file && doSave(`/media/${encodeURIComponent(grab.job.file)}`, 'grab', grab.ext || 'mp4', { fallbackName: readable(grab.info?.title) }));
 
-$('#grabToStudio').addEventListener('click', () => {
+function grabItem() {
   const i = grab.info;
-  openStudio({
+  const file = grab.job?.file;
+  const isVideo = file && !/\.mp3$/i.test(file);
+  return {
     id: `grab-${grab.job?.id || Date.now()}`,
     kind: 'rss',
     via: 'grab',
@@ -1383,8 +1730,25 @@ $('#grabToStudio').addEventListener('click', () => {
     link: i.url,
     image: i.thumbnail || '',
     video: '',
+    bgVideo: isVideo ? { src: `/media/${encodeURIComponent(file)}`, name: i.title } : null,
     published: new Date().toISOString(),
-  });
+  };
+}
+$('#grabToStudio').addEventListener('click', () => openStudio(grabItem()));
+
+// Before downloading: fetch the video (≤1080p), then open it straight in the studio as a video news card.
+$('#grabToCard').addEventListener('click', () => {
+  const i = grab.info;
+  if (grab.job?.file && !/\.mp3$/i.test(grab.job.file)) return openStudio(grabItem());
+  if (grab.quality === 'audio' || grab.quality === 'best') {
+    const hs = i.heights || [];
+    grab.quality = hs.some((h) => h >= 1080) ? '1080' : hs.some((h) => h >= 720) ? '720' : 'best';
+    $$('#grabQuality .chip').forEach((x) => x.setAttribute('aria-checked', x.dataset.q === grab.quality));
+    $('#grabGo').textContent = '⬇ Download MP4';
+    $('#grabExt').textContent = '.mp4';
+  }
+  grab.after = 'studio';
+  $('#grabGo').click();
 });
 
 $('#grabIg').addEventListener('click', async () => {
@@ -1402,6 +1766,65 @@ $('#grabIg').addEventListener('click', async () => {
   } finally {
     busy(btn, false);
   }
+});
+
+/* ---------------- extract audio from a local video ---------------- */
+const ex = { file: null, rate: '192', out: null };
+const exStatus = (t) => (($('#exStatus').hidden = !t), ($('#exStatus').textContent = t || ''));
+$('#exFile').addEventListener('change', (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  if (!isVideoFile(f) && !/^audio\//.test(f.type)) return toast("That file isn't a video.", { error: true });
+  if (f.size > 300e6) return toast('That video is over 300 MB — pick a shorter one.', { error: true });
+  ex.file = f;
+  ex.out = null;
+  $('#exName').textContent = `${f.name} · ${fmtSize(f.size)}`;
+  $('#exFileName').value = readable(f.name.replace(/\.[^.]+$/, ''));
+  $('#exGo').disabled = false;
+  $('#exSave').hidden = $('#exUse').hidden = $('#exPlayer').hidden = true;
+  exStatus('');
+});
+$$('#exRate .chip').forEach((b) =>
+  b.addEventListener('click', () => {
+    ex.rate = b.dataset.r;
+    ex.out = null;
+    $$('#exRate .chip').forEach((x) => x.setAttribute('aria-checked', x === b));
+  }),
+);
+$('#exGo').addEventListener('click', async () => {
+  if (!ex.file) return;
+  if (!state.config.features.transcode) return toast('Extracting audio needs ffmpeg on the server.', { error: true });
+  const btn = $('#exGo');
+  busy(btn, true);
+  $('#exPickLabel').classList.add('is-loading');
+  try {
+    exStatus(`Uploading ${fmtSize(ex.file.size)}…`);
+    const up = await uploadMedia(videoBlob(ex.file), 'raw');
+    exStatus('Extracting audio…');
+    ex.out = await api('/api/audio/extract', { method: 'POST', body: JSON.stringify({ name: up.name, bitrate: ex.rate }) });
+    exStatus(`✓ MP3 ready · ${fmtSize(ex.out.size)} · ${ex.rate} kbps`);
+    $('#exPlayer').src = ex.out.path;
+    $('#exPlayer').hidden = false;
+    $('#exSave').hidden = $('#exUse').hidden = false;
+    await doSave(ex.out.path, 'ex', 'mp3', { fallbackName: 'newsgram audio' });
+  } catch (e) {
+    exStatus('');
+    toast(e.message, { error: true, ms: 9000 });
+  } finally {
+    busy(btn, false);
+    $('#exPickLabel').classList.remove('is-loading');
+  }
+});
+$('#exSave').addEventListener('click', () => ex.out && doSave(ex.out.path, 'ex', 'mp3', { fallbackName: 'newsgram audio' }));
+$('#exUse').addEventListener('click', () => {
+  if (!ex.out) return;
+  if (music.custom?.url?.startsWith('blob:')) URL.revokeObjectURL(music.custom.url);
+  music.custom = { name: ($('#exFileName').value.trim() || 'Extracted audio').slice(0, 40), url: ex.out.path };
+  music.id = 'custom';
+  renderTracks();
+  updateMusicNote();
+  toast('Added to the Music tab as “Your upload” ✓ — it plays in your next reel.');
 });
 
 // Links shared to the app (e.g. /?grab=https://…) open straight in the grabber.
@@ -2232,7 +2655,7 @@ async function boot() {
   $('#igNote').textContent = f.instagram
     ? 'Publishes straight to your connected Business/Creator account.'
     : 'Not connected yet — click to see what the server needs.';
-  if (!pickMime().includes('mp4') && !f.transcode) $('#dlReel').textContent = '⬇ Record & download WebM';
+  if (!pickMime().includes('mp4') && !f.transcode) $('#dlReel').textContent = '🎬 Record video (WebM)';
   renderSources();
   renderRecent();
   syncSearchOpts();
