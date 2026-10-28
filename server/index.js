@@ -146,12 +146,40 @@ const MEDIA_TYPES = {
   'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm',
 };
 
-app.post('/api/media', express.raw({ type: ['image/*', 'video/*', 'audio/*'], limit: '300mb' }), wrap(async (req, res) => {
+const MAX_UPLOAD = 300e6;
+// Streams the upload straight to disk (holding it in memory can crash a small server).
+function saveUpload(req, dest) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const out = fs.createWriteStream(dest);
+    const fail = (e) => {
+      out.destroy();
+      fs.rmSync(dest, { force: true });
+      reject(e);
+    };
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_UPLOAD) {
+        req.unpipe(out);
+        req.resume(); // drain the rest
+        fail(Object.assign(new Error('That file is over 300 MB.'), { status: 413 }));
+      }
+    });
+    req.on('error', fail);
+    req.on('aborted', () => fail(new Error('Upload was interrupted.')));
+    out.on('error', fail);
+    out.on('finish', () => (size ? resolve(size) : fail(Object.assign(new Error('The upload was empty.'), { status: 400 }))));
+    req.pipe(out);
+  });
+}
+
+app.post('/api/media', wrap(async (req, res) => {
   const type = (req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const ext = MEDIA_TYPES[type] || null;
-  if (!ext || !req.body?.length) return res.status(400).json({ error: 'Unsupported media' });
+  if (!ext) return res.status(400).json({ error: 'Unsupported media' });
+  if (Number(req.headers['content-length'] || 0) > MAX_UPLOAD) return res.status(413).json({ error: 'That file is over 300 MB.' });
   let name = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
-  fs.writeFileSync(path.join(MEDIA_DIR, name), req.body);
+  await saveUpload(req, path.join(MEDIA_DIR, name));
   // Instagram needs H.264 MP4 — transcode anything else (or re-mux MediaRecorder MP4 for safety).
   // ?raw=1 keeps the upload as-is (e.g. a video we only want the sound from).
   if (type.startsWith('video/') && ffmpegPath && req.query.raw !== '1' && (ext === 'webm' || req.query.normalize === '1')) {
@@ -186,6 +214,28 @@ app.post('/api/audio/extract', wrap(async (req, res) => {
   fs.rmSync(src, { force: true }); // the uploaded video isn't needed any more
   const size = fs.statSync(path.join(MEDIA_DIR, out)).size;
   res.json({ name: out, path: `/media/${out}`, size });
+}));
+
+// Photos (iPhone) only keeps pictures and videos: wrap an audio file in a simple waveform video.
+app.post('/api/audio/tovideo', wrap(async (req, res) => {
+  if (!ffmpegPath) throw new Error('ffmpeg is not available on this server.');
+  const src = mediaFile(req.body?.name);
+  const out = path.basename(src).replace(/\.\w+$/, '') + '-photos.mp4';
+  const args = ['-y', '-hide_banner',
+    '-f', 'lavfi', '-i', 'color=c=0x0B0B10:s=720x720:r=15',
+    '-i', src,
+    '-filter_complex', '[1:a]aformat=channel_layouts=mono,showwaves=s=720x260:mode=cline:rate=15:colors=0xC6FF3D[w];[0:v][w]overlay=0:230:shortest=1,format=yuv420p[v]',
+    '-map', '[v]', '-map', '1:a', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30',
+    '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-shortest', '-movflags', '+faststart', path.join(MEDIA_DIR, out)];
+  await new Promise((resolve, reject) => {
+    const p = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.on('error', (e) => reject(new Error(`ffmpeg couldn't start: ${e.message}`)));
+    p.stderr.on('data', (d) => (err = (err + d).slice(-3000)));
+    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg failed: ${err.trim().split('\n').slice(-2).join(' ')}`))));
+  });
+  fs.rmSync(src, { force: true });
+  res.json({ name: out, path: `/media/${out}` });
 }));
 
 function transcode(input, output, hasAudio = false) {

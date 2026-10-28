@@ -42,6 +42,7 @@
     <nav class="vtabs" data-for="video" aria-label="Video tools" hidden>
       <button class="vtab" id="grabNav" data-v="grab">⬇ Grab video</button>
       <button class="vtab" id="editNav" data-v="edit">✂ Editor</button>
+      <button class="vtab" id="audioNav" data-v="audio">🎵 Audio</button>
     </nav>
   </div>
 
@@ -277,6 +278,119 @@
     </section>
 
     <!-- VIDEO EDITOR -->
+    <!-- AUDIO EDITOR -->
+    <section class="view" id="view-audio" aria-label="Audio editor">
+      <div class="ed au">
+        <div class="ed-actions au-actions">
+          <p class="muted small au-lead">Join several audio files into one — trim each, put them in order, then save a single MP3 or WAV.</p>
+          <label class="btn btn-primary btn-s file-btn" id="auAddLabel">＋ Add audio files<input type="file" id="auAdd" accept="audio/*,video/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.flac,.mp4,.mov" multiple /></label>
+        </div>
+
+        <div class="ed-main">
+          <div class="ed-stage">
+            <div class="au-drop" id="auDrop" tabindex="0" role="button" aria-label="Add audio files">
+              <strong>Drop audio files here</strong>
+              <span class="muted small">MP3, M4A, WAV, OGG, FLAC… or videos (their sound is used). Pick several at once.</span>
+            </div>
+            <div class="ed-transport">
+              <button class="btn btn-ghost btn-s icon" id="auToStart" aria-label="Go to start">⏮</button>
+              <button class="btn btn-primary btn-s icon play" id="auPlay" aria-label="Play">▶</button>
+              <span class="ed-time" id="auTime">0:00.0 / 0:00.0</span>
+              <span class="ed-spacer"></span>
+              <button class="btn btn-ghost btn-s" id="auSplit" title="Split the clip at the playhead (S)">✂ Split</button>
+              <button class="btn btn-ghost btn-s" id="auDup" title="Duplicate clip">⧉</button>
+              <button class="btn btn-ghost btn-s" id="auDel" title="Delete clip (Del)">🗑</button>
+            </div>
+            <div class="tl au-tl">
+              <div class="tl-labels">
+                <div class="tl-lab-ruler"><input type="range" id="auZoom" min="1" max="10" step="0.25" value="1" aria-label="Timeline zoom" /></div>
+                <div class="tl-lab">♪ Audio</div>
+              </div>
+              <div class="tl-scroll" id="auScroll">
+                <div class="tl-inner" id="auInner">
+                  <div class="tl-ruler" id="auRuler"></div>
+                  <div class="tl-track au-track" id="auTrack"></div>
+                  <div class="tl-playhead" id="auPlayhead"><span class="tl-handle" id="auHandle"></span></div>
+                </div>
+              </div>
+            </div>
+            <p class="muted small ed-keys">Drag a clip to reorder · drag its edges to crop · Space play/pause · S split · Del delete</p>
+          </div>
+
+          <aside class="ed-side">
+            <div class="tabs tabs-full ed-tabs au-tabs" role="tablist">
+              <button class="tab is-active" data-ap="clip">Clip</button>
+              <button class="tab" data-ap="export">Save</button>
+            </div>
+
+            <div class="ipanel is-active" data-ap="clip">
+              <p class="muted small" id="auNoClip">Add audio files, then select a clip on the timeline to crop it.</p>
+              <div id="auClipPanel" hidden>
+                <div class="ed-clip-head"><strong id="auClipName"></strong><span class="muted small" id="auClipTimes"></span></div>
+                <div class="au-trim">
+                  <label class="field"><span>Start at (s)</span><input class="input" type="number" id="auIn" min="0" step="0.1" /></label>
+                  <label class="field"><span>End at (s)</span><input class="input" type="number" id="auOut" min="0" step="0.1" /></label>
+                </div>
+                <div class="row gap-s wrap au-btns">
+                  <button class="btn btn-ghost btn-s" id="auInHere">⇤ Start at playhead</button>
+                  <button class="btn btn-ghost btn-s" id="auOutHere">End at playhead ⇥</button>
+                  <button class="btn btn-ghost btn-s" id="auReset">Undo crop</button>
+                </div>
+                <label class="field"><span>Volume <output id="auVolOut">100%</output></span><input type="range" id="auVol" min="0" max="200" value="100" /></label>
+                <div class="au-trim">
+                  <label class="field"><span>Fade in <output id="auFiOut">0s</output></span><input type="range" id="auFi" min="0" max="5" step="0.1" value="0" /></label>
+                  <label class="field"><span>Fade out <output id="auFoOut">0s</output></span><input type="range" id="auFo" min="0" max="5" step="0.1" value="0" /></label>
+                </div>
+                <div class="row gap-s wrap au-btns">
+                  <button class="btn btn-ghost btn-s" id="auLeft">◀ Move earlier</button>
+                  <button class="btn btn-ghost btn-s" id="auRight">Move later ▶</button>
+                  <button class="btn btn-ghost btn-s" id="auPlayClip">▶ Play this clip</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="ipanel" data-ap="export">
+              <p class="muted small" id="auSummary">No audio yet.</p>
+              <div class="field">
+                <span>Format</span>
+                <div class="chips" id="auFmt" role="radiogroup" aria-label="Format">
+                  <button class="chip" role="radio" data-f="mp3" aria-checked="true">MP3</button>
+                  <button class="chip" role="radio" data-f="wav" aria-checked="false">WAV (lossless)</button>
+                </div>
+              </div>
+              <div class="field" id="auRateField">
+                <span>MP3 quality</span>
+                <div class="chips" id="auRate" role="radiogroup" aria-label="MP3 quality">
+                  <button class="chip" role="radio" data-r="128" aria-checked="false">128 kbps</button>
+                  <button class="chip" role="radio" data-r="192" aria-checked="true">192 kbps</button>
+                  <button class="chip" role="radio" data-r="320" aria-checked="false">320 kbps</button>
+                </div>
+              </div>
+              <div class="save-row" data-save="au">
+                <label class="field save-name"><span>File name</span><span class="name-wrap"><input type="text" id="auFileName" maxlength="120" placeholder="Name your file" /><span class="ext" id="auExt">.mp3</span></span></label>
+                <div class="save-where"><span class="folder-chip" data-folder>📁 Downloads</span><button class="link" data-choose>Choose folder</button><button class="link" data-reset hidden>Forget folder</button></div>
+              </div>
+              <button class="btn btn-primary btn-lg" id="auExport" disabled>Combine into one file</button>
+              <p class="small muted" id="auStage" hidden></p>
+              <div class="reel-out au-out" id="auOutBox" hidden>
+                <audio id="auOutPlayer" controls></audio>
+                <p class="small"><b>✓ Ready</b> <span class="muted" id="auOutInfo"></span></p>
+                <div class="row gap-s wrap">
+                  <button class="btn btn-primary" id="auToFolder" hidden>📁 Choose folder &amp; save</button>
+                  <button class="btn btn-ghost" id="auSaveAs" hidden>Save as…</button>
+                  <button class="btn btn-primary" id="auToFiles" hidden>📁 Save to Files</button>
+                  <button class="btn btn-ghost" id="auToPhotos" hidden>🎞 Save to Photos (as video)</button>
+                  <button class="btn btn-ghost" id="auDownload">⬇ Download</button>
+                  <button class="btn btn-ghost" id="auUse">♪ Use as reel music</button>
+                </div>
+                <p class="muted small" id="auOutHint"></p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
     <section class="view" id="view-edit" aria-label="Video editor">
       <div class="ed">
         <div class="ed-actions">

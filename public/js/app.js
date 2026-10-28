@@ -178,7 +178,7 @@ document.addEventListener('click', async (e) => {
 /* ---------------- steps ---------------- */
 const nav = { image: 1, video: 'grab' };
 function go(step) {
-  const mode = step === 'grab' || step === 'edit' ? 'video' : 'image';
+  const mode = step === 'grab' || step === 'edit' || step === 'audio' ? 'video' : 'image';
   nav[mode] = step;
   $$('.mode').forEach((m) => {
     m.classList.toggle('is-active', m.dataset.mode === mode);
@@ -188,6 +188,7 @@ function go(step) {
   $('.vtabs').hidden = mode !== 'video';
   $$('.vtab').forEach((t) => t.classList.toggle('is-active', t.dataset.v === step));
   if (mode === 'image' && typeof edPause === 'function') edPause();
+  if (step !== 'audio' && typeof auStop === 'function' && au.playing) auStop();
   $$('.view').forEach((v) => v.classList.toggle('is-active', v.id === `view-${step}`));
   $$('.step').forEach((b) => {
     const n = Number(b.dataset.step);
@@ -202,12 +203,14 @@ function go(step) {
     renderVbg();
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (step === 'audio') requestAnimationFrame(() => auRender());
 }
 $$('.step').forEach((b) => b.addEventListener('click', () => !b.disabled && go(Number(b.dataset.step))));
 $$('.mode').forEach((m) =>
   m.addEventListener('click', () => {
     if (m.dataset.mode === 'image') go(nav.image);
     else if (nav.video === 'edit') openEditorView();
+    else if (nav.video === 'audio') go('audio');
     else openGrab();
   }),
 );
@@ -1233,7 +1236,7 @@ async function uploadMedia(blob, normalize = false, audio = null) {
   else if (blob.hasAudio) q.set('audio', '1');
   const res = await fetch(`/api/media?${q}`, { method: 'POST', headers: { 'Content-Type': blob.type.split(';')[0] || 'video/mp4' }, body: blob });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  if (!res.ok) throw new Error(data.error || (res.status === 413 ? 'Upload failed — the file is too big for the server.' : `Upload failed (server said ${res.status}${res.status >= 502 ? ' — it may have run out of memory or restarted' : ''}).`));
   return data;
 }
 
@@ -1499,7 +1502,7 @@ async function selectedMusic() {
   let buffer = music.buffers.get(t.file);
   if (!buffer) {
     const data = await (await fetch(t.file)).arrayBuffer();
-    buffer = await new Promise((res, rej) => actx.decodeAudioData(data, res, rej));
+    buffer = await decodeAudio(actx, data);
     music.buffers.set(t.file, buffer);
   }
   return { buffer, volume: music.volume / 100, offset: music.start };
@@ -1776,7 +1779,7 @@ $('#exFile').addEventListener('change', (e) => {
   e.target.value = '';
   if (!f) return;
   if (!isVideoFile(f) && !/^audio\//.test(f.type)) return toast("That file isn't a video.", { error: true });
-  if (f.size > 300e6) return toast('That video is over 300 MB — pick a shorter one.', { error: true });
+  if (f.size > 2e9) return toast('That video is over 2 GB — pick a shorter one.', { error: true });
   ex.file = f;
   ex.out = null;
   $('#exName').textContent = `${f.name} · ${fmtSize(f.size)}`;
@@ -1792,35 +1795,90 @@ $$('#exRate .chip').forEach((b) =>
     $$('#exRate .chip').forEach((x) => x.setAttribute('aria-checked', x === b));
   }),
 );
+// 1st choice: decode + encode in the browser (no upload — fast, works offline, any size the device can hold).
+// Fallback: upload to the server's ffmpeg (formats the browser can't decode, e.g. some MKV/AVI).
+/** decodeAudioData for old (callback) and new (promise) browsers, without an unhandled rejection. */
+function decodeAudio(actx, data) {
+  return new Promise((res, rej) => {
+    const p = actx.decodeAudioData(data, res, rej);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  });
+}
+const SERVER_EXTRACT_MAX = 95e6; // bigger uploads are unreliable on small hosts (free Render plan)
+
+async function extractInBrowser(file, kbps, onProgress) {
+  const actx = audioContext();
+  if (!actx || typeof Worker === 'undefined') throw Object.assign(new Error('no web audio'), { decode: true });
+  onProgress('Reading the video…');
+  const data = await file.arrayBuffer();
+  onProgress('Decoding the sound…');
+  let audio;
+  try {
+    audio = await decodeAudio(actx, data);
+  } catch (e) {
+    throw Object.assign(new Error(e?.message || 'decode failed'), { decode: true });
+  }
+  const left = audio.getChannelData(0).slice();
+  const right = audio.numberOfChannels > 1 ? audio.getChannelData(1).slice() : null;
+  return new Promise((resolve, reject) => {
+    const w = new Worker('/js/mp3-worker.js');
+    w.onmessage = (e) => {
+      if (e.data.progress != null) onProgress(`Encoding MP3… ${Math.round(e.data.progress * 100)}%`);
+      else {
+        w.terminate();
+        e.data.error ? reject(new Error(`MP3 encoding failed: ${e.data.error}`)) : resolve(e.data.done);
+      }
+    };
+    w.onerror = (e) => (w.terminate(), reject(new Error(e.message || 'MP3 encoder failed to load')));
+    onProgress('Encoding MP3…');
+    w.postMessage({ left, right, sampleRate: audio.sampleRate, kbps: Number(kbps) }, [left.buffer, ...(right ? [right.buffer] : [])]);
+  });
+}
+
+async function extractOnServer(file, kbps, onProgress) {
+  if (!state.config.features.transcode) throw new Error("This browser couldn't read the sound, and the server has no ffmpeg.");
+  if (file.size > SERVER_EXTRACT_MAX) throw new Error(`This browser couldn't read the sound in this video, and at ${fmtSize(file.size)} it's too big to send to the server. Try Chrome, or trim the video first.`);
+  onProgress(`Uploading ${fmtSize(file.size)} to the server…`);
+  const up = await uploadMedia(videoBlob(file), 'raw');
+  onProgress('Extracting audio on the server…');
+  const out = await api('/api/audio/extract', { method: 'POST', body: JSON.stringify({ name: up.name, bitrate: kbps }) });
+  return await (await fetch(out.path)).blob();
+}
+
 $('#exGo').addEventListener('click', async () => {
   if (!ex.file) return;
-  if (!state.config.features.transcode) return toast('Extracting audio needs ffmpeg on the server.', { error: true });
   const btn = $('#exGo');
   busy(btn, true);
   $('#exPickLabel').classList.add('is-loading');
   try {
-    exStatus(`Uploading ${fmtSize(ex.file.size)}…`);
-    const up = await uploadMedia(videoBlob(ex.file), 'raw');
-    exStatus('Extracting audio…');
-    ex.out = await api('/api/audio/extract', { method: 'POST', body: JSON.stringify({ name: up.name, bitrate: ex.rate }) });
-    exStatus(`✓ MP3 ready · ${fmtSize(ex.out.size)} · ${ex.rate} kbps`);
-    $('#exPlayer').src = ex.out.path;
+    let blob;
+    try {
+      blob = await extractInBrowser(ex.file, ex.rate, exStatus);
+    } catch (e) {
+      if (!e.decode) throw e;
+      console.warn('Browser decode failed, trying the server:', e.message);
+      blob = await extractOnServer(ex.file, ex.rate, exStatus);
+    }
+    if (ex.out?.url) URL.revokeObjectURL(ex.out.url);
+    ex.out = { blob, url: URL.createObjectURL(blob), size: blob.size };
+    exStatus(`✓ MP3 ready · ${fmtSize(blob.size)} · ${ex.rate} kbps`);
+    $('#exPlayer').src = ex.out.url;
     $('#exPlayer').hidden = false;
     $('#exSave').hidden = $('#exUse').hidden = false;
-    await doSave(ex.out.path, 'ex', 'mp3', { fallbackName: 'newsgram audio' });
+    await doSave(blob, 'ex', 'mp3', { fallbackName: 'newsgram audio' });
   } catch (e) {
     exStatus('');
-    toast(e.message, { error: true, ms: 9000 });
+    toast(/no sound track/i.test(e.message) ? 'This video has no sound to extract.' : e.message, { error: true, ms: 10000 });
   } finally {
     busy(btn, false);
     $('#exPickLabel').classList.remove('is-loading');
   }
 });
-$('#exSave').addEventListener('click', () => ex.out && doSave(ex.out.path, 'ex', 'mp3', { fallbackName: 'newsgram audio' }));
+$('#exSave').addEventListener('click', () => ex.out && doSave(ex.out.blob, 'ex', 'mp3', { fallbackName: 'newsgram audio' }));
 $('#exUse').addEventListener('click', () => {
   if (!ex.out) return;
   if (music.custom?.url?.startsWith('blob:')) URL.revokeObjectURL(music.custom.url);
-  music.custom = { name: ($('#exFileName').value.trim() || 'Extracted audio').slice(0, 40), url: ex.out.path };
+  music.custom = { name: ($('#exFileName').value.trim() || 'Extracted audio').slice(0, 40), url: URL.createObjectURL(ex.out.blob) };
   music.id = 'custom';
   renderTracks();
   updateMusicNote();
@@ -2635,6 +2693,702 @@ function renderEd() {
 }
 
 /* ---------------- boot ---------------- */
+/* ---------------- audio editor: join several audio files into one ---------------- */
+const au = {
+  clips: [], // { id, name, buffer, in, out, vol, fi, fo, peaks }
+  sel: null,
+  uid: 0,
+  t: 0,
+  playing: null, // { t0, ctxT0, nodes, stopAt, only }
+  raf: 0,
+  zoom: 1,
+  fmt: store.get('auFmt', 'mp3'),
+  rate: store.get('auRate', '192'),
+  out: null, // { blob, ext, url, photos }
+};
+const PEAKS_PER_SEC = 60;
+const auLen = (c) => c.out - c.in;
+const auTotal = () => au.clips.reduce((s, c) => s + auLen(c), 0);
+const auSel = () => au.clips.find((c) => c.id === au.sel) || null;
+const auStarts = () => {
+  let acc = 0;
+  return au.clips.map((c) => ((acc += auLen(c)), acc - auLen(c)));
+};
+const fmtT = (t) => {
+  t = Math.max(0, t);
+  const m = Math.floor(t / 60);
+  return `${m}:${(t - m * 60).toFixed(1).padStart(4, '0')}`;
+};
+
+function peaksOf(buffer) {
+  const n = Math.max(1, Math.ceil(buffer.duration * PEAKS_PER_SEC));
+  const step = buffer.length / n;
+  const chans = [...Array(Math.min(2, buffer.numberOfChannels)).keys()].map((i) => buffer.getChannelData(i));
+  const peaks = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    const a = Math.floor(i * step);
+    const b = Math.min(buffer.length, Math.floor((i + 1) * step));
+    for (const d of chans) for (let j = a; j < b; j += 4) m = Math.max(m, Math.abs(d[j]));
+    peaks[i] = m;
+  }
+  return peaks;
+}
+
+async function auDecode(file) {
+  const actx = audioContext();
+  if (!actx) throw new Error('This browser has no Web Audio support.');
+  try {
+    return await decodeAudio(actx, await file.arrayBuffer());
+  } catch {
+    // Formats the browser can't read (e.g. some MKV/AVI/AMR): let the server's ffmpeg convert it.
+    const mp3 = await extractOnServer(file, '320', (m) => toast(`${file.name}: ${m}`, { ms: 30000 }));
+    return await decodeAudio(actx, await mp3.arrayBuffer());
+  }
+}
+
+async function auAddFiles(files) {
+  files = [...files].filter(Boolean);
+  if (!files.length) return;
+  $('#auAddLabel').classList.add('is-loading');
+  let added = 0;
+  for (const [k, f] of files.entries()) {
+    if (!/^audio\//.test(f.type) && !isVideoFile(f) && !/\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|amr|wma|aiff?)$/i.test(f.name)) {
+      toast(`${f.name} isn't an audio file — skipped.`, { error: true });
+      continue;
+    }
+    if (f.size > 1e9) {
+      toast(`${f.name} is over 1 GB — skipped.`, { error: true });
+      continue;
+    }
+    toast(`Loading ${k + 1} of ${files.length}: ${f.name}`, { ms: 30000 });
+    try {
+      const buffer = await auDecode(f);
+      const clip = { id: `a${++au.uid}`, name: f.name.replace(/\.[^.]+$/, '').slice(0, 60), buffer, in: 0, out: buffer.duration, vol: 1, fi: 0, fo: 0, peaks: peaksOf(buffer) };
+      au.clips.push(clip);
+      au.sel = clip.id;
+      added++;
+      if (!$('#auFileName').value.trim()) $('#auFileName').value = readable(clip.name);
+      auRender();
+    } catch (e) {
+      toast(`Couldn't read ${f.name}: ${e.message}`, { error: true, ms: 9000 });
+    }
+  }
+  $('#auAddLabel').classList.remove('is-loading');
+  if (added) toast(added > 1 ? `${added} files added ✓` : 'Added ✓');
+}
+
+$('#auAdd').addEventListener('change', (e) => {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  auAddFiles(files);
+});
+const auDrop = $('#auDrop');
+auDrop.addEventListener('click', () => $('#auAdd').click());
+auDrop.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), $('#auAdd').click()));
+auDrop.addEventListener('dragover', (e) => (e.preventDefault(), auDrop.classList.add('is-over')));
+auDrop.addEventListener('dragleave', () => auDrop.classList.remove('is-over'));
+auDrop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  auDrop.classList.remove('is-over');
+  auAddFiles(e.dataTransfer.files || []);
+});
+$('#audioNav').addEventListener('click', () => go('audio'));
+
+/* ---------- timeline ---------- */
+function auPps() {
+  const w = $('#auScroll').clientWidth || 600;
+  return (Math.max(10, auTotal()) > 0 ? (w - 24) / Math.max(10, auTotal()) : 40) * au.zoom;
+}
+
+function drawWave(cv, clip, wpx) {
+  const h = 84;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.max(1, Math.round(wpx * dpr));
+  cv.height = h * dpr;
+  const g = cv.getContext('2d');
+  g.scale(dpr, dpr);
+  g.fillStyle = 'rgba(198,255,61,0.85)';
+  const a = clip.in * PEAKS_PER_SEC;
+  const b = clip.out * PEAKS_PER_SEC;
+  const per = (b - a) / wpx;
+  const mid = h / 2 + 6;
+  if (!clip.peakMax) {
+    let m = 0.05; // loop, not spread: Safari limits argument counts
+    for (let i = 0; i < clip.peaks.length; i++) if (clip.peaks[i] > m) m = clip.peaks[i];
+    clip.peakMax = m;
+  }
+  const norm = 0.92 / clip.peakMax;
+  for (let x = 0; x < wpx; x += 2) {
+    let m = 0;
+    for (let i = Math.floor(a + x * per); i < Math.min(clip.peaks.length, Math.floor(a + (x + 2) * per) + 1); i++) m = Math.max(m, clip.peaks[i]);
+    const y = Math.max(1, Math.min(1, m * norm * clip.vol) * (h / 2 - 12));
+    g.fillRect(x, mid - y, 1.4, y * 2);
+  }
+}
+
+function auRender() {
+  const total = auTotal();
+  const pps = auPps();
+  const wrap = $('.au');
+  wrap.classList.toggle('has-clips', au.clips.length > 0);
+  $('#auInner').style.width = `${Math.max($('#auScroll').clientWidth, total * pps + 40)}px`;
+  // ruler
+  const step = pps > 120 ? 1 : pps > 40 ? 5 : pps > 15 ? 10 : pps > 5 ? 30 : 60;
+  let ticks = '';
+  for (let t = 0; t <= Math.max(total, 10) + step; t += step) ticks += `<span class="tl-tick" style="left:${t * pps}px">${fmtDur(t) || '0:00'}</span>`;
+  $('#auRuler').innerHTML = ticks;
+  // clips
+  const starts = auStarts();
+  $('#auTrack').innerHTML = au.clips
+    .map((c, i) => {
+      const w = auLen(c) * pps;
+      return `<div class="tl-clip ${c.id === au.sel ? 'sel' : ''}" data-id="${c.id}" style="left:${starts[i] * pps}px;width:${Math.max(6, w - 2)}px">
+        <canvas></canvas>
+        ${c.fi ? `<span class="fade in" style="width:${c.fi * pps}px"></span>` : ''}${c.fo ? `<span class="fade out" style="width:${c.fo * pps}px"></span>` : ''}
+        <span class="lbl">${esc(c.name)} · ${fmtDur(auLen(c)) || '0:00'}</span>
+        <span class="tl-h l" data-h="l"></span><span class="tl-h r" data-h="r"></span>
+      </div>`;
+    })
+    .join('');
+  $$('#auTrack .tl-clip').forEach((el) => {
+    const c = au.clips.find((x) => x.id === el.dataset.id);
+    drawWave($('canvas', el), c, Math.max(6, auLen(c) * pps - 2));
+  });
+  auPlayhead();
+  auPanel();
+}
+
+/** Live update while dragging a crop edge (keeps the DOM, so the pointer isn't lost). */
+function auLayout(active) {
+  const pps = auPps();
+  const starts = auStarts();
+  au.clips.forEach((c, i) => {
+    const el = $(`#auTrack .tl-clip[data-id="${c.id}"]`);
+    if (!el) return;
+    el.style.left = `${starts[i] * pps}px`;
+    el.style.width = `${Math.max(6, auLen(c) * pps - 2)}px`;
+    if (c === active) {
+      drawWave($('canvas', el), c, Math.max(6, auLen(c) * pps - 2));
+      $('.lbl', el).textContent = `${c.name} · ${fmtDur(auLen(c)) || '0:00'}`;
+    }
+  });
+  $('#auTime').textContent = `${fmtT(au.t)} / ${fmtT(auTotal())}`;
+  if (active === auSel()) $('#auClipTimes').textContent = `${fmtT(active.in)} → ${fmtT(active.out)} of ${fmtT(active.buffer.duration)}`;
+}
+
+function auPlayhead() {
+  const total = auTotal();
+  $('#auPlayhead').style.left = `${au.t * auPps()}px`;
+  $('#auTime').textContent = `${fmtT(au.t)} / ${fmtT(total)}`;
+  $('#auPlay').textContent = au.playing ? '❚❚' : '▶';
+  $('#auPlay').setAttribute('aria-label', au.playing ? 'Pause' : 'Play');
+}
+
+function auPanel() {
+  const c = auSel();
+  $('#auNoClip').hidden = !!c;
+  $('#auClipPanel').hidden = !c;
+  const total = auTotal();
+  $('#auExport').disabled = !au.clips.length;
+  $('#auSummary').textContent = au.clips.length ? `${au.clips.length} clip${au.clips.length > 1 ? 's' : ''} · ${fmtDur(total) || '0:00'} in total → one ${au.fmt.toUpperCase()} file` : 'No audio yet — add files first.';
+  if (!c) return;
+  $('#auClipName').textContent = c.name;
+  $('#auClipTimes').textContent = `${fmtT(c.in)} → ${fmtT(c.out)} of ${fmtT(c.buffer.duration)}`;
+  $('#auIn').value = c.in.toFixed(1);
+  $('#auIn').max = c.buffer.duration.toFixed(1);
+  $('#auOut').value = c.out.toFixed(1);
+  $('#auOut').max = c.buffer.duration.toFixed(1);
+  $('#auVol').value = Math.round(c.vol * 100);
+  $('#auVolOut').textContent = `${Math.round(c.vol * 100)}%`;
+  $('#auFi').value = c.fi;
+  $('#auFiOut').textContent = `${c.fi}s`;
+  $('#auFo').value = c.fo;
+  $('#auFoOut').textContent = `${c.fo}s`;
+  const i = au.clips.indexOf(c);
+  $('#auLeft').disabled = i === 0;
+  $('#auRight').disabled = i === au.clips.length - 1;
+}
+
+function auEdited() {
+  au.out = null;
+  $('#auOutBox').hidden = true;
+  au.t = Math.min(au.t, auTotal());
+  auRender();
+}
+
+/* pointer: select, reorder, crop edges, seek */
+const auTrack = $('#auTrack');
+auTrack.addEventListener('pointerdown', (e) => {
+  const el = e.target.closest('.tl-clip');
+  if (!el) return auSeekFrom(e);
+  e.preventDefault();
+  const c = au.clips.find((x) => x.id === el.dataset.id);
+  au.sel = c.id;
+  const h = e.target.closest('[data-h]')?.dataset.h;
+  const pps = auPps();
+  const x0 = e.clientX;
+  const start = { in: c.in, out: c.out };
+  const idx0 = au.clips.indexOf(c);
+  const left0 = parseFloat(el.style.left);
+  $$('#auTrack .tl-clip').forEach((x) => x.classList.toggle('sel', x === el));
+  auPanel();
+  let moved = false;
+  const move = (ev) => {
+    const dx = ev.clientX - x0;
+    if (Math.abs(dx) > 3) moved = true;
+    if (!moved) return;
+    const dt = dx / pps;
+    if (h === 'l') {
+      c.in = Math.max(0, Math.min(start.out - 0.2, start.in + dt));
+      auLayout(c);
+    } else if (h === 'r') {
+      c.out = Math.min(c.buffer.duration, Math.max(start.in + 0.2, start.out + dt));
+      auLayout(c);
+    } else {
+      el.classList.add('drag');
+      el.style.left = `${left0 + dx}px`;
+    }
+  };
+  const up = (ev) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    if (!moved) return auRender();
+    if (!h) {
+      // drop position → new order (by clip centres)
+      const centre = (left0 + (ev.clientX - x0)) / pps + auLen(c) / 2;
+      const rest = au.clips.filter((x) => x !== c);
+      let acc = 0;
+      let to = rest.length;
+      for (let i = 0; i < rest.length; i++) {
+        if (centre < acc + auLen(rest[i]) / 2) {
+          to = i;
+          break;
+        }
+        acc += auLen(rest[i]);
+      }
+      rest.splice(to, 0, c);
+      au.clips = rest;
+      if (to !== idx0) toast('Order changed ✓', { ms: 1500 });
+    }
+    auStop();
+    auEdited();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+});
+
+function auSeekFrom(e) {
+  const r = $('#auInner').getBoundingClientRect();
+  auSeek((e.clientX - r.left) / auPps());
+}
+function auSeek(t) {
+  const was = !!au.playing && !au.playing.only;
+  auStop();
+  au.t = Math.max(0, Math.min(auTotal(), t));
+  auPlayhead();
+  if (was) auStart();
+}
+$('#auRuler').addEventListener('pointerdown', auSeekFrom);
+$('#auHandle').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const h = e.currentTarget;
+  h.setPointerCapture(e.pointerId);
+  const mv = (ev) => auSeekFrom(ev);
+  h.addEventListener('pointermove', mv);
+  h.addEventListener('pointerup', () => h.removeEventListener('pointermove', mv), { once: true });
+});
+$('#auZoom').addEventListener('input', (e) => {
+  au.zoom = Number(e.target.value);
+  auRender();
+});
+window.addEventListener('resize', () => $('#view-audio').classList.contains('is-active') && auRender());
+
+/* ---------- playback / rendering share one scheduler ---------- */
+/** Gain envelope for a clip (volume + fades), sampled from local time `from` to the end. */
+function auEnvelope(c, from) {
+  const L = auLen(c);
+  const n = Math.max(2, Math.ceil((L - from) * 50));
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const l = from + ((L - from) * i) / (n - 1);
+    let g = 1;
+    if (c.fi) g = Math.min(g, l / c.fi);
+    if (c.fo) g = Math.min(g, (L - l) / c.fo);
+    curve[i] = Math.max(0, g) * c.vol;
+  }
+  return curve;
+}
+
+/** Schedules the timeline from time `t` into `dest`; returns the source nodes. */
+function auSchedule(ctx, dest, t, clips = au.clips, at = ctx.currentTime + 0.05) {
+  const nodes = [];
+  let acc = 0;
+  for (const c of clips) {
+    const L = auLen(c);
+    const s = acc;
+    acc += L;
+    if (t >= s + L - 0.01) continue;
+    const local = Math.max(0, t - s);
+    const when = at + Math.max(0, s - t);
+    const src = ctx.createBufferSource();
+    src.buffer = c.buffer;
+    const g = ctx.createGain();
+    g.gain.setValueCurveAtTime(auEnvelope(c, local), when, L - local);
+    src.connect(g).connect(dest);
+    src.start(when, c.in + local, L - local);
+    nodes.push(src);
+  }
+  return nodes;
+}
+
+function auStart(only = null) {
+  const total = only ? auLen(only) : auTotal();
+  if (!total) return;
+  const actx = audioContext();
+  if (actx.state === 'suspended') actx.resume();
+  if (!only && au.t >= total - 0.05) au.t = 0;
+  const from = only ? 0 : au.t;
+  const at = actx.currentTime + 0.05;
+  const nodes = auSchedule(actx, actx.destination, from, only ? [only] : au.clips, at);
+  au.playing = { from, at, nodes, total, only, base: only ? auStarts()[au.clips.indexOf(only)] : 0 };
+  const tick = () => {
+    if (!au.playing) return;
+    const p = au.playing;
+    const local = p.from + Math.max(0, actx.currentTime - p.at);
+    au.t = p.base + Math.min(local, p.total);
+    auPlayhead();
+    const sc = $('#auScroll');
+    const x = au.t * auPps();
+    if (x > sc.scrollLeft + sc.clientWidth - 30 || x < sc.scrollLeft) sc.scrollLeft = x - 60;
+    if (local >= p.total) return auStop();
+    au.raf = requestAnimationFrame(tick);
+  };
+  au.raf = requestAnimationFrame(tick);
+  auPlayhead();
+}
+function auStop() {
+  cancelAnimationFrame(au.raf);
+  if (au.playing) for (const n of au.playing.nodes) try { n.stop(); } catch {}
+  au.playing = null;
+  if ($('#auPlay')) auPlayhead();
+}
+$('#auPlay').addEventListener('click', () => (au.playing ? auStop() : auStart()));
+$('#auToStart').addEventListener('click', () => auSeek(0));
+$('#auPlayClip').addEventListener('click', () => {
+  const c = auSel();
+  if (!c) return;
+  auStop();
+  auStart(c);
+});
+
+/* ---------- clip actions ---------- */
+function auClipAt(t) {
+  const starts = auStarts();
+  for (let i = 0; i < au.clips.length; i++) if (t >= starts[i] && t < starts[i] + auLen(au.clips[i])) return { c: au.clips[i], local: t - starts[i], i };
+  return null;
+}
+$('#auSplit').addEventListener('click', () => {
+  const hit = auClipAt(au.t);
+  if (!hit || hit.local < 0.1 || auLen(hit.c) - hit.local < 0.1) return toast('Move the playhead inside a clip to split it.', { error: true });
+  auStop();
+  const b = { ...hit.c, id: `a${++au.uid}`, in: hit.c.in + hit.local, fi: 0 };
+  hit.c.out = b.in;
+  hit.c.fo = 0;
+  au.clips.splice(hit.i + 1, 0, b);
+  au.sel = b.id;
+  auEdited();
+});
+$('#auDup').addEventListener('click', () => {
+  const c = auSel();
+  if (!c) return;
+  const i = au.clips.indexOf(c);
+  const d = { ...c, id: `a${++au.uid}` };
+  au.clips.splice(i + 1, 0, d);
+  au.sel = d.id;
+  auEdited();
+});
+function auDelete() {
+  const c = auSel();
+  if (!c) return;
+  auStop();
+  const i = au.clips.indexOf(c);
+  au.clips.splice(i, 1);
+  au.sel = au.clips[Math.min(i, au.clips.length - 1)]?.id || null;
+  auEdited();
+}
+$('#auDel').addEventListener('click', auDelete);
+const auMove = (d) => {
+  const c = auSel();
+  if (!c) return;
+  const i = au.clips.indexOf(c);
+  const j = i + d;
+  if (j < 0 || j >= au.clips.length) return;
+  auStop();
+  [au.clips[i], au.clips[j]] = [au.clips[j], au.clips[i]];
+  auEdited();
+};
+$('#auLeft').addEventListener('click', () => auMove(-1));
+$('#auRight').addEventListener('click', () => auMove(1));
+const auSet = (fn) => {
+  const c = auSel();
+  if (!c) return;
+  auStop();
+  fn(c);
+  c.in = Math.max(0, Math.min(c.in, c.buffer.duration - 0.2));
+  c.out = Math.min(c.buffer.duration, Math.max(c.in + 0.2, c.out));
+  const L = auLen(c);
+  c.fi = Math.min(c.fi, L / 2);
+  c.fo = Math.min(c.fo, L / 2);
+  auEdited();
+};
+$('#auIn').addEventListener('change', (e) => auSet((c) => (c.in = Number(e.target.value) || 0)));
+$('#auOut').addEventListener('change', (e) => auSet((c) => (c.out = Number(e.target.value) || c.buffer.duration)));
+$('#auInHere').addEventListener('click', () => {
+  const hit = auClipAt(au.t);
+  if (!hit || hit.c !== auSel()) return toast('Put the playhead inside the selected clip first.', { error: true });
+  auSet((c) => (c.in += hit.local));
+});
+$('#auOutHere').addEventListener('click', () => {
+  const hit = auClipAt(au.t);
+  if (!hit || hit.c !== auSel()) return toast('Put the playhead inside the selected clip first.', { error: true });
+  auSet((c) => (c.out = c.in + hit.local));
+});
+$('#auReset').addEventListener('click', () => auSet((c) => ((c.in = 0), (c.out = c.buffer.duration))));
+$('#auVol').addEventListener('input', (e) => {
+  const c = auSel();
+  if (!c) return;
+  c.vol = Number(e.target.value) / 100;
+  $('#auVolOut').textContent = `${e.target.value}%`;
+});
+$('#auVol').addEventListener('change', () => auSel() && auEdited());
+[['#auFi', 'fi', '#auFiOut'], ['#auFo', 'fo', '#auFoOut']].forEach(([sel, key, out]) => {
+  $(sel).addEventListener('input', (e) => {
+    const c = auSel();
+    if (!c) return;
+    c[key] = Math.min(Number(e.target.value), auLen(c) / 2);
+    $(out).textContent = `${c[key]}s`;
+  });
+  $(sel).addEventListener('change', () => auSel() && auEdited());
+});
+$$('[data-ap]').forEach((t) =>
+  t.addEventListener('click', () => {
+    if (!t.classList.contains('tab')) return;
+    $$('.au-tabs .tab').forEach((x) => x.classList.toggle('is-active', x === t));
+    $$('#view-audio .ipanel').forEach((p) => p.classList.toggle('is-active', p.dataset.ap === t.dataset.ap));
+  }),
+);
+document.addEventListener('keydown', (e) => {
+  if (!$('#view-audio').classList.contains('is-active') || e.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (e.code === 'Space') e.preventDefault(), au.playing ? auStop() : auStart();
+  else if (e.key === 's' || e.key === 'S') $('#auSplit').click();
+  else if (e.key === 'Delete' || e.key === 'Backspace') e.preventDefault(), auDelete();
+});
+
+/* ---------- export ---------- */
+function setChips(id, attr, val) {
+  $$(`#${id} .chip`).forEach((x) => x.setAttribute('aria-checked', x.dataset[attr] === val));
+}
+setChips('auFmt', 'f', au.fmt);
+setChips('auRate', 'r', au.rate);
+$('#auRateField').hidden = au.fmt !== 'mp3';
+$('#auExt').textContent = `.${au.fmt}`;
+$$('#auFmt .chip').forEach((b) =>
+  b.addEventListener('click', () => {
+    au.fmt = b.dataset.f;
+    store.set('auFmt', au.fmt);
+    setChips('auFmt', 'f', au.fmt);
+    $('#auRateField').hidden = au.fmt !== 'mp3';
+    $('#auExt').textContent = `.${au.fmt}`;
+    auEdited();
+  }),
+);
+$$('#auRate .chip').forEach((b) =>
+  b.addEventListener('click', () => {
+    au.rate = b.dataset.r;
+    store.set('auRate', au.rate);
+    setChips('auRate', 'r', au.rate);
+    auEdited();
+  }),
+);
+
+function encodeWav(buf) {
+  const ch = buf.numberOfChannels;
+  const n = buf.length;
+  const out = new DataView(new ArrayBuffer(44 + n * ch * 2));
+  const w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF');
+  out.setUint32(4, 36 + n * ch * 2, true);
+  w(8, 'WAVEfmt ');
+  out.setUint32(16, 16, true);
+  out.setUint16(20, 1, true);
+  out.setUint16(22, ch, true);
+  out.setUint32(24, buf.sampleRate, true);
+  out.setUint32(28, buf.sampleRate * ch * 2, true);
+  out.setUint16(32, ch * 2, true);
+  out.setUint16(34, 16, true);
+  w(36, 'data');
+  out.setUint32(40, n * ch * 2, true);
+  const data = [...Array(ch).keys()].map((i) => buf.getChannelData(i));
+  let o = 44;
+  for (let i = 0; i < n; i++)
+    for (let c = 0; c < ch; c++) {
+      const s = Math.max(-1, Math.min(1, data[c][i]));
+      out.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      o += 2;
+    }
+  return new Blob([out], { type: 'audio/wav' });
+}
+
+function encodeMp3(buf, kbps, onProgress) {
+  const left = buf.getChannelData(0).slice();
+  const right = buf.numberOfChannels > 1 ? buf.getChannelData(1).slice() : null;
+  return new Promise((resolve, reject) => {
+    const w = new Worker('/js/mp3-worker.js');
+    w.onmessage = (e) => {
+      if (e.data.progress != null) onProgress(e.data.progress);
+      else {
+        w.terminate();
+        e.data.error ? reject(new Error(`MP3 encoding failed: ${e.data.error}`)) : resolve(e.data.done);
+      }
+    };
+    w.onerror = (e) => (w.terminate(), reject(new Error(e.message || 'MP3 encoder failed to load')));
+    w.postMessage({ left, right, sampleRate: buf.sampleRate, kbps: Number(kbps) }, [left.buffer, ...(right ? [right.buffer] : [])]);
+  });
+}
+
+const auStage = (t) => (($('#auStage').hidden = !t), ($('#auStage').textContent = t || ''));
+const canShareAudio = (() => {
+  try {
+    return Boolean(navigator.canShare?.({ files: [new File([new Blob(['x'], { type: 'audio/mpeg' })], 'x.mp3', { type: 'audio/mpeg' })] }));
+  } catch {
+    return false;
+  }
+})();
+const auFileName = () => `${cleanName($('#auFileName').value || 'newsgram audio')}.${au.out?.ext || au.fmt}`;
+
+$('#auExport').addEventListener('click', async () => {
+  const total = auTotal();
+  if (!total) return;
+  auStop();
+  const btn = $('#auExport');
+  busy(btn, true);
+  try {
+    const SR = 44100;
+    const stereo = au.clips.some((c) => c.buffer.numberOfChannels > 1);
+    auStage('Combining clips…');
+    const off = new OfflineAudioContext(stereo ? 2 : 1, Math.ceil(total * SR), SR);
+    auSchedule(off, off.destination, 0, au.clips, 0);
+    const mixed = await off.startRendering();
+    let blob;
+    if (au.fmt === 'wav') {
+      auStage('Writing WAV…');
+      blob = encodeWav(mixed);
+    } else {
+      auStage('Encoding MP3…');
+      blob = await encodeMp3(mixed, au.rate, (p) => auStage(`Encoding MP3… ${Math.round(p * 100)}%`));
+    }
+    if (au.out?.url) URL.revokeObjectURL(au.out.url);
+    au.out = { blob, ext: au.fmt, url: URL.createObjectURL(blob), photos: null };
+    auStage('');
+    $('#auOutPlayer').src = au.out.url;
+    $('#auOutInfo').textContent = `· ${fmtDur(total) || '0:00'} · ${fmtSize(blob.size)} · ${au.fmt.toUpperCase()}${au.fmt === 'mp3' ? ` ${au.rate} kbps` : ''}`;
+    auSyncOut();
+    $('#auOutBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (!isPhone && folderName()) await auSaveFolder();
+    else toast(isPhone ? 'Ready ✓ — choose where to save it' : 'Ready ✓ — choose where to save it', { ms: 4000 });
+  } catch (e) {
+    auStage('');
+    toast(`Couldn't combine the audio: ${e.message}`, { error: true, ms: 9000 });
+  } finally {
+    busy(btn, false);
+  }
+});
+
+function auSyncOut() {
+  $('#auOutBox').hidden = !au.out;
+  if (!au.out) return;
+  const pick = supportsFolders();
+  $('#auToFolder').hidden = isPhone || !pick;
+  $('#auSaveAs').hidden = isPhone || !pick;
+  $('#auToFolder').textContent = folderName() ? `📁 Save to “${folderName()}”` : '📁 Choose folder & save';
+  $('#auToFiles').hidden = !isPhone;
+  $('#auToPhotos').hidden = !(isPhone && canShareFiles && state.config.features.transcode);
+  $('#auToPhotos').textContent = au.out.photos ? '📱 Save video to Photos' : '🎞 Save to Photos (as video)';
+  $('#auDownload').hidden = isPhone;
+  $('#auDownload').textContent = pick ? '⬇ Downloads folder' : '⬇ Download';
+  $('#auOutHint').textContent = isPhone
+    ? 'Photos only stores pictures and videos — “Save to Photos” turns the audio into a video with a waveform. For the audio file itself, use “Save to Files”.'
+    : pick
+      ? 'Pick a folder once (e.g. Desktop) — after that, every new file saves there automatically.'
+      : 'This browser saves to its Downloads folder. To pick a folder, use Chrome or Edge.';
+}
+onFolderChange(() => au.out && auSyncOut());
+
+async function auSaveFolder() {
+  if (!au.out) return;
+  if (!folderName()) {
+    try {
+      if (!(await chooseFolder())) return;
+    } catch (e) {
+      return toast(e.message, { error: true });
+    }
+  }
+  return doSave(au.out.blob, 'au', au.out.ext, { fallbackName: 'newsgram audio' });
+}
+$('#auToFolder').addEventListener('click', auSaveFolder);
+$('#auSaveAs').addEventListener('click', () => au.out && doSave(au.out.blob, 'au', au.out.ext, { askWhere: true, fallbackName: 'newsgram audio' }));
+$('#auDownload').addEventListener('click', () => au.out && download(au.out.blob, auFileName()));
+$('#auToFiles').addEventListener('click', async () => {
+  if (!au.out) return;
+  const file = new File([au.out.blob], auFileName(), { type: au.out.blob.type });
+  if (canShareAudio) {
+    try {
+      return await navigator.share({ files: [file] }); // → "Save to Files"
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  download(au.out.blob, file.name);
+});
+$('#auToPhotos').addEventListener('click', async () => {
+  if (!au.out) return;
+  const btn = $('#auToPhotos');
+  if (!au.out.photos) {
+    // Step 1: make the video on the server (needs a fresh tap afterwards to open the share sheet).
+    busy(btn, true);
+    try {
+      toast('Making a video for Photos…', { ms: 60000 });
+      const up = await uploadMedia(new Blob([au.out.blob], { type: au.out.blob.type }));
+      const v = await api('/api/audio/tovideo', { method: 'POST', body: JSON.stringify({ name: up.name }) });
+      au.out.photos = await (await fetch(v.path)).blob();
+      toast('Video ready ✓ — tap “Save video to Photos”', { ms: 5000 });
+    } catch (e) {
+      toast(`Couldn't make the video: ${e.message}`, { error: true, ms: 9000 });
+    } finally {
+      busy(btn, false);
+      auSyncOut();
+    }
+    return;
+  }
+  const file = new File([au.out.photos], auFileName().replace(/\.\w+$/, '.mp4'), { type: 'video/mp4' });
+  try {
+    await navigator.share({ files: [file] }); // → "Save Video"
+  } catch (e) {
+    if (e.name !== 'AbortError') toast(`Couldn't open the share sheet: ${e.message}`, { error: true });
+  }
+});
+$('#auUse').addEventListener('click', () => {
+  if (!au.out) return;
+  music.custom = { name: ($('#auFileName').value.trim() || 'My audio').slice(0, 40), url: URL.createObjectURL(au.out.blob) };
+  music.id = 'custom';
+  renderTracks();
+  updateMusicNote();
+  toast('Added to the studio Music tab as “Your upload” ✓');
+});
+
 async function boot() {
   try {
     state.config = await api('/api/config');
