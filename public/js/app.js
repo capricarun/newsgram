@@ -1,6 +1,6 @@
 import { renderCard, SIZE, ACCENTS, TEMPLATES, imageArea, clampPan, mediaSize } from './render.js';
 import { recordReel, pickMime, audioContext, playMusic } from './reel.js';
-import { initSave, saveFile, chooseFolder, clearFolder, onFolderChange, supportsFolders, cleanName, folderName } from './save.js';
+import { initSave, saveFile, chooseFolder, clearFolder, onFolderChange, supportsFolders, cleanName, folderName, primeSave } from './save.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -140,7 +140,9 @@ async function doSave(source, key, ext, { askWhere = false, fallbackName = 'news
   try {
     const r = await saveFile(source, name, ext, { askWhere });
     if (!r) return null;
-    toast(r.where === 'folder' ? `Saved to “${r.folder}/${r.name}” ✓` : r.where === 'picker' ? `Saved “${r.name}” ✓` : `Downloading “${r.name}”…`);
+    if (r.folderBlocked && r.where === 'download')
+      toast(`Couldn't open “${r.folder}”, so it went to your Downloads folder as “${r.name}”. Tap a Save button to put it in the folder.`, { ms: 9000 });
+    else toast(r.where === 'folder' ? `Saved to “${r.folder}/${r.name}” ✓` : r.where === 'picker' ? `Saved “${r.name}” ✓` : `Downloading “${r.name}”…`);
     return r;
   } catch (e) {
     toast(`Couldn't save: ${e.message}`, { error: true, ms: 8000 });
@@ -1303,17 +1305,26 @@ onFolderChange(() => reelOut.blob && syncReelOut());
 $('#dlReel').addEventListener('click', async () => {
   const btn = $('#dlReel');
   stopPreviewTrack();
+  if (!toPhotos) primeSave(); // re-grant the saved folder now, while this click still counts
   try {
     let blob = await makeReel();
     if (!blob) return;
     let ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
-    // Phones: always hand Photos a clean H.264/AAC MP4. Desktop: convert only WebM.
+    // Phones: hand Photos a clean H.264/AAC MP4. Desktop: convert only WebM.
     if (state.config.features.transcode && (ext === 'webm' || toPhotos)) {
       busy(btn, true);
       toast('Preparing the MP4…', { ms: 60000 });
-      const up = await uploadMedia(blob, toPhotos);
-      blob = await (await fetch(up.path)).blob();
-      ext = 'mp4';
+      try {
+        const up = await uploadMedia(blob, toPhotos);
+        const res = await fetch(up.path);
+        if (!res.ok) throw new Error(`server said ${res.status}`);
+        blob = await res.blob();
+        ext = 'mp4';
+      } catch (e) {
+        // Keep the recording rather than failing — phones record MP4 already.
+        console.warn('MP4 conversion failed:', e.message);
+        if (ext === 'webm') toast(`Couldn't convert to MP4 (${e.message}) — you'll get a WebM file instead.`, { error: true, ms: 7000 });
+      }
     }
     if (reelOut.url) URL.revokeObjectURL(reelOut.url);
     Object.assign(reelOut, { blob, ext, url: URL.createObjectURL(blob) });
@@ -1656,6 +1667,7 @@ function renderGrabInfo() {
 }
 
 $('#grabGo').addEventListener('click', async () => {
+  primeSave();
   const btn = $('#grabGo');
   btn.disabled = true;
   $('#grabToCard').disabled = true;
@@ -1847,6 +1859,7 @@ async function extractOnServer(file, kbps, onProgress) {
 
 $('#exGo').addEventListener('click', async () => {
   if (!ex.file) return;
+  primeSave();
   const btn = $('#exGo');
   busy(btn, true);
   $('#exPickLabel').classList.add('is-loading');
@@ -2605,6 +2618,7 @@ function renderSummary() {
   $('#edRender').disabled = !ed.clips.length;
 }
 $('#edRender').addEventListener('click', async () => {
+  primeSave();
   if (!ed.clips.length) return;
   edPause();
   const btn = $('#edRender');
@@ -3272,6 +3286,7 @@ const auFileName = () => `${cleanName($('#auFileName').value || 'newsgram audio'
 $('#auExport').addEventListener('click', async () => {
   const total = auTotal();
   if (!total) return;
+  if (!isPhone) primeSave();
   auStop();
   const btn = $('#auExport');
   busy(btn, true);

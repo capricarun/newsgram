@@ -67,6 +67,22 @@ export async function chooseFolder() {
     throw e;
   }
 }
+/**
+ * Call this straight from a click, before slow work (recording, encoding, rendering).
+ * Browsers only allow permission prompts during a click, and a remembered folder needs its
+ * permission re-granted after every reload — asking later, when the file is ready, fails.
+ */
+export async function primeSave() {
+  if (!folder) return true;
+  try {
+    let perm = await folder.queryPermission?.({ mode: 'readwrite' });
+    if (perm !== 'granted') perm = await folder.requestPermission?.({ mode: 'readwrite' });
+    return perm === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 export async function clearFolder() {
   folder = null;
   await kvSet('saveFolder', undefined);
@@ -134,14 +150,26 @@ export async function saveFile(source, name, ext, { askWhere = false } = {}) {
   const file = `${base}.${ext}`;
 
   // 1) A folder was chosen before → write straight into it.
+  let folderBlocked = false;
   if (folder && !askWhere) {
-    let perm = await folder.queryPermission?.({ mode: 'readwrite' });
-    if (perm !== 'granted') perm = await folder.requestPermission?.({ mode: 'readwrite' });
-    if (perm === 'granted') {
-      const { handle, name: finalName } = await uniqueHandle(folder, base, ext);
-      await writeTo(handle, source);
-      return { where: 'folder', name: finalName, folder: folder.name };
+    let perm = 'denied';
+    try {
+      perm = await folder.queryPermission?.({ mode: 'readwrite' });
+      // Only works during a click — outside one it throws, so fall through to the other options.
+      if (perm !== 'granted') perm = await folder.requestPermission?.({ mode: 'readwrite' });
+    } catch {
+      perm = 'denied';
     }
+    if (perm === 'granted') {
+      try {
+        const { handle, name: finalName } = await uniqueHandle(folder, base, ext);
+        await writeTo(handle, source);
+        return { where: 'folder', name: finalName, folder: folder.name };
+      } catch (e) {
+        if (e.name !== 'NotAllowedError' && e.name !== 'SecurityError' && e.name !== 'NotFoundError') throw e;
+      }
+    }
+    folderBlocked = true; // folder moved/deleted or permission not given
   }
   // 2) Browser can show a real "Save as" dialog (pick folder + name).
   if (canSaveAs) {
@@ -153,7 +181,7 @@ export async function saveFile(source, name, ext, { askWhere = false } = {}) {
         types: MIME[ext] ? [{ description: ext.toUpperCase(), accept: { [MIME[ext]]: [`.${ext}`] } }] : undefined,
       });
       await writeTo(handle, source);
-      return { where: 'picker', name: handle.name };
+      return { where: 'picker', name: handle.name, folderBlocked };
     } catch (e) {
       if (e.name === 'AbortError') return null;
       // e.g. the click was too long ago for the browser to allow a dialog — just download.
@@ -162,5 +190,5 @@ export async function saveFile(source, name, ext, { askWhere = false } = {}) {
   }
   // 3) Everything else: normal download with the chosen name.
   classicDownload(source, file);
-  return { where: 'download', name: file };
+  return { where: 'download', name: file, folderBlocked, folder: folder?.name };
 }
